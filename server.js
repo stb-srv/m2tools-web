@@ -43,10 +43,17 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            // Frontend uses inline <script>/<style> blocks throughout - 'unsafe-inline'
-            // is required until those are moved into external files. CSP still blocks
-            // untrusted external hosts, framing, and <object>/<embed> exfiltration.
-            scriptSrc: ["'self'", "'unsafe-inline'", 'https://cdnjs.cloudflare.com'],
+            // The Vue frontend (frontend/) has zero inline <script> tags or
+            // inline event-handler attributes - it's 100% externally bundled
+            // JS, so scriptSrc no longer needs 'unsafe-inline'. jszip (used by
+            // the tga_converter module) is now an npm dependency bundled with
+            // the app, not the CDN script the old vanilla frontend loaded, so
+            // cdnjs.cloudflare.com is no longer needed here either.
+            scriptSrc: ["'self'"],
+            // Vue's :style bindings render as inline style="..." attributes,
+            // which CSP's style-src still governs - 'unsafe-inline' stays
+            // required here (no inline <script> risk is introduced by this,
+            // since scriptSrc is separate and already locked down above).
             styleSrc: ["'self'", "'unsafe-inline'"],
             imgSrc: ["'self'", 'data:'],
             fontSrc: ["'self'", 'data:'],
