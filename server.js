@@ -199,6 +199,15 @@ fs.readdirSync(modulesBaseDir).forEach(folder => {
 
 // ── Start ───────────────────────────────────────────────
 
+// ── SPA Fallback (Vue frontend build in public/dist) ───
+// express.static('public') above already serves public/dist/* (it's a
+// subfolder of public/), public/assets/*, public/basic/*, and public/i18n/*
+// directly. This just serves the built index.html for any other path so
+// client-side routing (vue-router, createWebHistory) works on refresh/
+// deep-link, without intercepting API calls or static asset 404s.
+app.get(/^\/(?!api\/|assets\/|basic\/|i18n\/|dist\/).*/, (req, res) => {
+    res.sendFile(path.join(__dirname, 'public/dist/index.html'));
+});
 
 // ── Global Error Handler ───────────────────────────────
 const ApiError = require('./server/utils/apiError');
