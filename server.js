@@ -157,6 +157,14 @@ if (iconsPath && fs.existsSync(iconsPath)) {
 
 app.use(express.static('public'));
 
+// Built Vue frontend (frontend/, built via `npm run build` into public/dist/).
+// Mounted at the site root so the hashed asset paths emitted by Vite
+// (e.g. /app-assets/index-XXXX.js) resolve correctly - public/dist/ is one
+// level deeper than public/, so express.static('public') alone can't reach
+// them. build.assetsDir is set to 'app-assets' (not Vite's default
+// "assets") specifically so this never collides with public/assets/items/.
+app.use(express.static(path.join(__dirname, 'public/dist')));
+
 
 
 // ── API Routes (Dynamic Loader) ───────────────────────
