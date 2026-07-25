@@ -11,9 +11,14 @@ let nextToastId = 1;
 export const useUiStore = defineStore('ui', {
     state: () => ({
         toasts: [],
-        modal: null // { type: 'confirm'|'alert'|'prompt', title, message, okText, cancelText, defaultValue, resolve }
+        modal: null, // { type: 'confirm'|'alert'|'prompt', title, message, okText, cancelText, defaultValue, resolve }
+        commandPaletteOpen: false
     }),
     actions: {
+        toggleCommandPalette() {
+            this.commandPaletteOpen = !this.commandPaletteOpen;
+        },
+
         toast(message, type = 'info', duration = 4000) {
             const id = nextToastId++;
             this.toasts.push({ id, message, type });

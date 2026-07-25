@@ -1,6 +1,7 @@
 <script setup>
+import MainLayout from '@/components/layout/MainLayout.vue';
 </script>
 
 <template>
-    <div>M2-Tools frontend scaffold OK</div>
+    <MainLayout />
 </template>
