@@ -54,9 +54,14 @@ app.use(helmet({
             // which CSP's style-src still governs - 'unsafe-inline' stays
             // required here (no inline <script> risk is introduced by this,
             // since scriptSrc is separate and already locked down above).
-            styleSrc: ["'self'", "'unsafe-inline'"],
+            // shared.css @imports Google Fonts' CSS (fonts.googleapis.com),
+            // which in turn references the actual font files on
+            // fonts.gstatic.com (below) - both were missing from this CSP
+            // pre-Vue-migration too, silently breaking the font and
+            // logging a CSP violation on every single page load.
+            styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
             imgSrc: ["'self'", 'data:'],
-            fontSrc: ["'self'", 'data:'],
+            fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
             connectSrc: ["'self'"],
             objectSrc: ["'none'"],
             frameAncestors: ["'none'"],

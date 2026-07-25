@@ -27,5 +27,8 @@ export default defineConfig({
             '/basic': 'http://localhost:3001',
             '/i18n': 'http://localhost:3001'
         }
+    },
+    test: {
+        environment: 'happy-dom'
     }
 });

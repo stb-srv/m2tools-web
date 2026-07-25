@@ -14,6 +14,10 @@ public/basic/
 # Frontend build output (built by `npm run build` in frontend/)
 public/dist/
 
+# Playwright output (frontend/e2e smoke test)
+frontend/test-results/
+frontend/playwright-report/
+
 # Logs
 *.log
 
