@@ -6,6 +6,7 @@ const path = require('path');
 const AdmZip = require('adm-zip');
 const ApiError = require('../../utils/apiError');
 const { getWorkspaceDbById } = require('../../utils/workspace');
+const protoImportService = require('../../services/protoImportService');
 
 /**
  * Verifies the user owns or is a team member of the given workspace.
@@ -267,51 +268,15 @@ const uploadItemProto = async (req, res, next) => {
         const userId = req.user.id;
         await assertWorkspaceAccess(id, userId);
 
-        const { parseProtoText } = require('../proto_import/controller');
-        const content = req.file.buffer.toString('utf-8');
-
-        const items = parseProtoText(content, 'item');
-
+        const items = protoImportService.parseUploadedProtoFile(req.file.buffer, 'item');
         if (items.length === 0) {
-            // Check if encoding might be the issue
-            const latinContent = req.file.buffer.toString('latin1');
-            const itemsLatin = parseProtoText(latinContent, 'item');
-            if (itemsLatin.length > 0) {
-                return await processItems(itemsLatin, userId, id, res, next);
-            }
             throw ApiError.badRequest('Keine gültigen Einträge im File gefunden. Bitte Dateiformat prüfen.');
         }
 
-        return await processItems(items, userId, id, res, next);
-    } catch (err) {
-        next(err);
-    }
-};
-
-const processItems = async (items, userId, wsId, res, next) => {
-    try {
-        const wsDb = await getWorkspaceDbById(userId, wsId);
+        const wsDb = await getWorkspaceDbById(userId, id);
         if (!wsDb) throw ApiError.internal('Workspace-Datenbank konnte nicht geladen werden');
 
-        let imported = 0;
-        const insertStmt = wsDb.prepare(
-            `INSERT OR REPLACE INTO item_proto (vnum, locale_name, type, subtype, flag) VALUES (?, ?, ?, ?, ?)`
-        );
-
-        const transaction = wsDb.transaction((rows) => {
-            for (const item of rows) {
-                insertStmt.run(
-                    parseInt(item.vnum) || 0,
-                    item.locale_name || item.name || '',
-                    parseInt(item.type) || 0,
-                    parseInt(item.subtype) || 0,
-                    parseInt(item.flag) || 0
-                );
-                imported++;
-            }
-        });
-
-        transaction(items);
+        const imported = protoImportService.writeItems(wsDb, items);
         res.json({ success: true, message: `${imported} Items erfolgreich importiert` });
     } catch (err) {
         next(err);
@@ -327,48 +292,15 @@ const uploadMobProto = async (req, res, next) => {
         const userId = req.user.id;
         await assertWorkspaceAccess(id, userId);
 
-        const { parseProtoText } = require('../proto_import/controller');
-        const content = req.file.buffer.toString('utf-8');
-
-        const mobs = parseProtoText(content, 'mob');
+        const mobs = protoImportService.parseUploadedProtoFile(req.file.buffer, 'mob');
         if (mobs.length === 0) {
-            const latinContent = req.file.buffer.toString('latin1');
-            const mobsLatin = parseProtoText(latinContent, 'mob');
-            if (mobsLatin.length > 0) {
-                return await processMobs(mobsLatin, userId, id, res, next);
-            }
             throw ApiError.badRequest('Keine gültigen Einträge im File gefunden.');
         }
 
-        return await processMobs(mobs, userId, id, res, next);
-    } catch (err) {
-        next(err);
-    }
-};
-
-const processMobs = async (mobs, userId, wsId, res, next) => {
-    try {
-        const wsDb = await getWorkspaceDbById(userId, wsId);
+        const wsDb = await getWorkspaceDbById(userId, id);
         if (!wsDb) throw ApiError.internal('Workspace-Datenbank konnte nicht geladen werden');
 
-        let imported = 0;
-        const insertStmt = wsDb.prepare(
-            `INSERT OR REPLACE INTO mob_proto (vnum, locale_name, type, level) VALUES (?, ?, ?, ?)`
-        );
-
-        const transaction = wsDb.transaction((rows) => {
-            for (const mob of rows) {
-                insertStmt.run(
-                    parseInt(mob.vnum) || 0,
-                    mob.locale_name || mob.name || '',
-                    parseInt(mob.type) || 0,
-                    parseInt(mob.level) || 0
-                );
-                imported++;
-            }
-        });
-
-        transaction(mobs);
+        const imported = protoImportService.writeMobs(wsDb, mobs);
         res.json({ success: true, message: `${imported} Mob-Einträge erfolgreich importiert` });
     } catch (err) {
         next(err);
