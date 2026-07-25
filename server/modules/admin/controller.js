@@ -83,15 +83,22 @@ const getAllUsers = async (req, res, next) => {
 /**
  * Update a user's role or premium status.
  */
+const VALID_ROLES = ['admin', 'editor', 'viewer'];
+
 const updateUserStatus = async (req, res, next) => {
     const { userId, role, isPremium } = req.body;
     if (!userId) return next(ApiError.badRequest('Benutzer-ID fehlt'));
-    
+    if (role !== undefined && !VALID_ROLES.includes(role)) {
+        return next(ApiError.badRequest('Ungültige Rolle'));
+    }
+
     try {
-        await db.query(
-            'UPDATE m2em_users SET role = ?, is_premium = ? WHERE id = ?',
-            [role, isPremium ? 1 : 0, userId]
-        );
+        if (role !== undefined) {
+            await db.query('UPDATE m2em_users SET role = ? WHERE id = ?', [role, userId]);
+        }
+        if (isPremium !== undefined) {
+            await db.query('UPDATE m2em_users SET is_premium = ? WHERE id = ?', [isPremium ? 1 : 0, userId]);
+        }
         res.json({ success: true });
     } catch (err) {
         next(err);

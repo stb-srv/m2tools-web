@@ -5,7 +5,21 @@ const { existsSync, mkdirSync, writeFileSync } = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
 const ApiError = require('../../utils/apiError');
-const { getWorkspaceDb } = require('../../utils/workspace');
+const { getWorkspaceDbById } = require('../../utils/workspace');
+
+/**
+ * Verifies the user owns or is a team member of the given workspace.
+ * Throws ApiError.forbidden if not.
+ */
+async function assertWorkspaceAccess(id, userId) {
+    const [rows] = await db.query(
+        `SELECT w.id FROM workspaces w
+         LEFT JOIN m2em_team_members tm ON w.team_id = tm.team_id
+         WHERE w.id = ? AND (w.userId = ? OR tm.user_id = ?)`,
+        [id, userId, userId]
+    );
+    if (rows.length === 0) throw ApiError.forbidden('Kein Zugriff auf diesen Workspace');
+}
 
 // List workspaces for user (personal + team)
 const list = async (req, res, next) => {
@@ -175,6 +189,8 @@ const uploadDb = async (req, res, next) => {
     if (!req.file) return next(ApiError.badRequest('Keine Datei hochgeladen'));
 
     try {
+        await assertWorkspaceAccess(id, req.user.id);
+
         try {
             await storageService.checkQuota(req.user.id, req.file.size);
         } catch (qErr) {
@@ -200,6 +216,8 @@ const uploadIcons = async (req, res, next) => {
     if (!req.file) return next(ApiError.badRequest('Keine Datei hochgeladen'));
 
     try {
+        await assertWorkspaceAccess(id, req.user.id);
+
         const zip = new AdmZip(req.file.buffer);
         const iconDir = storageService.getWorkspaceIconPath(req.user.id, id);
         
@@ -247,36 +265,32 @@ const uploadItemProto = async (req, res, next) => {
 
     try {
         const userId = req.user.id;
+        await assertWorkspaceAccess(id, userId);
+
         const { parseProtoText } = require('../proto_import/controller');
         const content = req.file.buffer.toString('utf-8');
-        
-        console.log(`[Proto Debug] User ${userId} uploaded file, size: ${req.file.size} bytes`);
-        console.log(`[Proto Debug] First 200 chars: ${content.substring(0, 200)}`);
-        
+
         const items = parseProtoText(content, 'item');
-        console.log(`[Proto Debug] Parsed items count: ${items.length}`);
 
         if (items.length === 0) {
             // Check if encoding might be the issue
             const latinContent = req.file.buffer.toString('latin1');
-            console.log(`[Proto Debug] Retrying with latin1... First 200: ${latinContent.substring(0, 200)}`);
             const itemsLatin = parseProtoText(latinContent, 'item');
             if (itemsLatin.length > 0) {
-                console.log(`[Proto Debug] Success with latin1 (${itemsLatin.length} items)`);
-                return await processItems(itemsLatin, userId, res, next);
+                return await processItems(itemsLatin, userId, id, res, next);
             }
             throw ApiError.badRequest('Keine gültigen Einträge im File gefunden. Bitte Dateiformat prüfen.');
         }
 
-        return await processItems(items, userId, res, next);
+        return await processItems(items, userId, id, res, next);
     } catch (err) {
         next(err);
     }
 };
 
-const processItems = async (items, userId, res, next) => {
+const processItems = async (items, userId, wsId, res, next) => {
     try {
-        const wsDb = await getWorkspaceDb(userId);
+        const wsDb = await getWorkspaceDbById(userId, wsId);
         if (!wsDb) throw ApiError.internal('Workspace-Datenbank konnte nicht geladen werden');
 
         let imported = 0;
@@ -311,30 +325,30 @@ const uploadMobProto = async (req, res, next) => {
 
     try {
         const userId = req.user.id;
+        await assertWorkspaceAccess(id, userId);
+
         const { parseProtoText } = require('../proto_import/controller');
         const content = req.file.buffer.toString('utf-8');
-        
-        console.log(`[Proto Mob Debug] User ${userId} uploaded file, size: ${req.file.size} bytes`);
-        
+
         const mobs = parseProtoText(content, 'mob');
         if (mobs.length === 0) {
             const latinContent = req.file.buffer.toString('latin1');
             const mobsLatin = parseProtoText(latinContent, 'mob');
             if (mobsLatin.length > 0) {
-                return await processMobs(mobsLatin, userId, res, next);
+                return await processMobs(mobsLatin, userId, id, res, next);
             }
             throw ApiError.badRequest('Keine gültigen Einträge im File gefunden.');
         }
 
-        return await processMobs(mobs, userId, res, next);
+        return await processMobs(mobs, userId, id, res, next);
     } catch (err) {
         next(err);
     }
 };
 
-const processMobs = async (mobs, userId, res, next) => {
+const processMobs = async (mobs, userId, wsId, res, next) => {
     try {
-        const wsDb = await getWorkspaceDb(userId);
+        const wsDb = await getWorkspaceDbById(userId, wsId);
         if (!wsDb) throw ApiError.internal('Workspace-Datenbank konnte nicht geladen werden');
 
         let imported = 0;

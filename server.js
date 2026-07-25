@@ -40,7 +40,22 @@ app.use((req, res, next) => {
 
 app.use(helmet({
 
-    contentSecurityPolicy: false, // Set false for dev, refine for production
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            // Frontend uses inline <script>/<style> blocks throughout - 'unsafe-inline'
+            // is required until those are moved into external files. CSP still blocks
+            // untrusted external hosts, framing, and <object>/<embed> exfiltration.
+            scriptSrc: ["'self'", "'unsafe-inline'", 'https://cdnjs.cloudflare.com'],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", 'data:'],
+            fontSrc: ["'self'", 'data:'],
+            connectSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            frameAncestors: ["'none'"],
+            baseUri: ["'self'"]
+        }
+    },
 
     crossOriginEmbedderPolicy: false
 
@@ -80,7 +95,27 @@ const authLimiter = rateLimit({
 
 
 
-app.use(cors());
+// CORS: restrict to known origins via ALLOWED_ORIGINS (comma-separated) in .env.
+// Falls back to permissive (reflect any origin) for local development if unset.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(o => o.trim())
+    .filter(Boolean);
+
+if (allowedOrigins.length > 0) {
+    app.use(cors({
+        origin(origin, callback) {
+            // No Origin header (e.g. same-origin requests, curl) is always allowed.
+            if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+            callback(new Error('Not allowed by CORS'));
+        }
+    }));
+} else {
+    if (process.env.NODE_ENV === 'production') {
+        console.warn('\x1b[33m%s\x1b[0m', '[Server] ALLOWED_ORIGINS ist nicht gesetzt - CORS erlaubt aktuell jede Origin. Für Produktion in .env setzen, z.B. ALLOWED_ORIGINS=https://deine-domain.de');
+    }
+    app.use(cors());
+}
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -94,9 +129,9 @@ app.use('/api/', apiLimiter);
 
 // ── Shared Config & Secrets ───────────────────────────
 
-if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'm2em_secret_key_change_in_production')) {
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
 
-    console.error('\x1b[31m%s\x1b[0m', 'CRITICAL SECURITY WARNING: No secure JWT_SECRET set in .env for production!');
+    console.error('\x1b[31m%s\x1b[0m', 'CRITICAL SECURITY WARNING: No JWT_SECRET set in .env for production! Sessions will not survive a restart.');
 
 }
 

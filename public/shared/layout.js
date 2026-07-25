@@ -7,7 +7,11 @@
     'use strict';
 
     // ── Safety Helpers ─────────────────────────────────────
-    // Safety helpers are now in /shared/utils.js
+    // Local fallback so the navbar still escapes user content even on pages
+    // that don't load /shared/utils.js before this file.
+    const escapeHtml = (window.m2Safe && window.m2Safe.escape) || function (s) {
+        return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    };
 
     class M2Layout {
         constructor() {
@@ -169,8 +173,8 @@
                 const profile = document.createElement('div');
                 profile.className = 'm2-user-profile';
                 profile.innerHTML = `
-                    <div class="m2-avatar">${initial}</div>
-                    <span class="m2-user-name">${u.displayName || u.username}</span>
+                    <div class="m2-avatar">${escapeHtml(initial)}</div>
+                    <span class="m2-user-name">${escapeHtml(u.displayName || u.username)}</span>
                 `;
                 profile.onclick = () => window.location.href = '/account.html';
                 right.appendChild(profile);

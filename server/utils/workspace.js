@@ -79,14 +79,11 @@ async function getWorkspaceScope(userId) {
 }
 
 /**
- * Gets a better-sqlite3 connection to the workspace's proto.db.
- * Falls back to main DB if not found or no workspace.
+ * Gets a better-sqlite3 connection to a specific workspace's proto.db by id.
+ * Caller is responsible for verifying the user has access to wsId.
  */
-async function getWorkspaceDb(userId) {
-    const ws = await getActiveWorkspace(userId);
-    if (!ws) return null;
-
-    const cacheKey = `${userId}_${ws.id}`;
+async function openWorkspaceDb(userId, wsId) {
+    const cacheKey = `${userId}_${wsId}`;
     const cached = wsDbCache.get(cacheKey);
 
     if (cached && cached.db && cached.db.open) {
@@ -95,7 +92,7 @@ async function getWorkspaceDb(userId) {
     }
 
     const storageService = require('../services/storageService');
-    const dbPath = storageService.getWorkspaceDbPath(userId, ws.id);
+    const dbPath = storageService.getWorkspaceDbPath(userId, wsId);
 
     if (fs.existsSync(dbPath)) {
         let dbInstance = null;
@@ -103,7 +100,7 @@ async function getWorkspaceDb(userId) {
             dbInstance = new Database(dbPath);
             // Validation: Try a simple operation to ensure it's a valid SQLite file
             dbInstance.pragma('journal_mode = WAL'); // This will fail if not a DB
-            
+
             wsDbCache.set(cacheKey, { db: dbInstance, lastUsed: Date.now() });
 
             // Cleanup old connections periodically
@@ -117,15 +114,15 @@ async function getWorkspaceDb(userId) {
 
             return dbInstance;
         } catch (err) {
-            console.error(`[Workspace-Util] Failed to validate workspace DB for WS ${ws.id}:`, err.message);
+            console.error(`[Workspace-Util] Failed to validate workspace DB for WS ${wsId}:`, err.message);
             if (dbInstance) try { dbInstance.close(); } catch (e) {}
 
             // If it's a corruption error, try to repair it!
             if (err.message.includes('file is not a database') || err.message.includes('malformed')) {
-                console.log(`[Workspace-Util] Corruption detected in WS ${ws.id}. Triggering repair...`);
+                console.log(`[Workspace-Util] Corruption detected in WS ${wsId}. Triggering repair...`);
                 wsDbCache.delete(cacheKey);
-                await storageService.repairWorkspaceDb(userId, ws.id);
-                
+                await storageService.repairWorkspaceDb(userId, wsId);
+
                 // Try opening again after repair
                 try {
                     const repairedDb = new Database(dbPath);
@@ -142,4 +139,22 @@ async function getWorkspaceDb(userId) {
     return null;
 }
 
-module.exports = { getActiveWorkspace, resolveWorkspacePath, getWorkspaceScope, getWorkspaceDb };
+/**
+ * Gets a better-sqlite3 connection to the user's *active* workspace proto.db.
+ * Falls back to null if not found or no active workspace.
+ */
+async function getWorkspaceDb(userId) {
+    const ws = await getActiveWorkspace(userId);
+    if (!ws) return null;
+    return openWorkspaceDb(userId, ws.id);
+}
+
+/**
+ * Gets a better-sqlite3 connection to a specific workspace by id.
+ * Caller must have already verified the user has access to wsId.
+ */
+async function getWorkspaceDbById(userId, wsId) {
+    return openWorkspaceDb(userId, wsId);
+}
+
+module.exports = { getActiveWorkspace, resolveWorkspacePath, getWorkspaceScope, getWorkspaceDb, getWorkspaceDbById };

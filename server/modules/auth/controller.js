@@ -5,6 +5,7 @@ const db = require('../../config/database');
 const { JWT_SECRET } = require('./middleware');
 const { sendVerificationEmail } = require('./mailer');
 const { isDisposableEmail } = require('./disposable-emails');
+const { stripHTML } = require('../../utils/sanitizer');
 
 const SALT_ROUNDS = 10;
 const TOKEN_EXPIRY = '24h';
@@ -18,12 +19,16 @@ async function initAuth() {
         const [rows] = await db.query('SELECT COUNT(*) as count FROM m2em_users');
         const count = rows[0]?.count ?? rows[0]?.['COUNT(*)'] ?? 0;
         if (count === 0) {
-            const hash = await bcrypt.hash('admin', SALT_ROUNDS);
+            const initialPassword = crypto.randomBytes(12).toString('base64url');
+            const hash = await bcrypt.hash(initialPassword, SALT_ROUNDS);
             await db.query(
                 'INSERT INTO m2em_users (username, email, password_hash, role, email_verified) VALUES (?, ?, ?, ?, ?)',
                 ['admin', 'admin@localhost', hash, 'admin', 1]
             );
-            console.log('[Auth] Default admin user created (admin/admin)');
+            console.log('\x1b[33m%s\x1b[0m', '[Auth] Kein Benutzer vorhanden – Admin-Konto wurde angelegt:');
+            console.log('\x1b[33m%s\x1b[0m', `[Auth]   Benutzername: admin`);
+            console.log('\x1b[33m%s\x1b[0m', `[Auth]   Initial-Passwort: ${initialPassword}`);
+            console.log('\x1b[33m%s\x1b[0m', '[Auth]   Bitte sofort nach dem ersten Login unter "Account" ändern. Dieses Passwort wird nicht erneut angezeigt.');
         }
     } catch (err) {
         console.error('[Auth] Initial seed check failed:', err.message);
@@ -288,7 +293,8 @@ const updateAccount = async (req, res) => {
 
         // Update display name
         if (displayName !== undefined) {
-            await db.query('UPDATE m2em_users SET display_name = ? WHERE id = ?', [displayName, userId]);
+            const cleanDisplayName = stripHTML(String(displayName)).trim().slice(0, 50);
+            await db.query('UPDATE m2em_users SET display_name = ? WHERE id = ?', [cleanDisplayName, userId]);
         }
 
         // Update email (requires re-verification)

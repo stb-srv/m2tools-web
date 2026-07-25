@@ -25,7 +25,7 @@ router.post('/upload/:vnum', requireAuth, upload.single('icon'), async (req, res
         const file = req.file;
 
         if (!file) throw ApiError.badRequest('Keine Datei hochgeladen');
-        if (!vnum) throw ApiError.badRequest('VNUM erforderlich');
+        if (!/^\d+$/.test(vnum)) throw ApiError.badRequest('VNUM muss eine positive Zahl sein');
 
         const ws = await getActiveWorkspace(userId);
         if (!ws) throw ApiError.badRequest('Kein aktiver Workspace ausgewählt');
@@ -69,6 +69,8 @@ router.delete('/:vnum', requireAuth, async (req, res, next) => {
         const userId = req.user.id;
         const vnum = req.params.vnum;
 
+        if (!/^\d+$/.test(vnum)) throw ApiError.badRequest('VNUM muss eine positive Zahl sein');
+
         const ws = await getActiveWorkspace(userId);
         if (!ws) throw ApiError.badRequest('Kein aktiver Workspace ausgewählt');
 
@@ -81,7 +83,7 @@ router.delete('/:vnum', requireAuth, async (req, res, next) => {
 
         res.json({ success: true });
     } catch (err) {
-        next(ApiError.internal('Löschen fehlgeschlagen', err.message));
+        next(err instanceof ApiError ? err : ApiError.internal('Löschen fehlgeschlagen', err.message));
     }
 });
 

@@ -1,13 +1,17 @@
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const ApiError = require('../../utils/apiError');
 
-const DEFAULT_SECRET = 'm2em_secret_key_change_in_production';
-const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_SECRET;
+let JWT_SECRET = process.env.JWT_SECRET;
 
-// Security Enforcement: Prevent starting with default secret in production
-if (process.env.NODE_ENV === 'production' && JWT_SECRET === DEFAULT_SECRET) {
-    console.error('\x1b[31m%s\x1b[0m', 'FATAL SECURITY ERROR: You must set a secure JWT_SECRET in your .env file for production!');
-    process.exit(1);
+if (!JWT_SECRET) {
+    // No hardcoded fallback secret (a secret visible in the source code is not a secret).
+    // Generate a random one for this process instead - tokens will simply become
+    // invalid on every restart until JWT_SECRET is set in .env.
+    JWT_SECRET = crypto.randomBytes(48).toString('hex');
+    console.warn('\x1b[33m%s\x1b[0m', '[Auth] WARNUNG: Kein JWT_SECRET in .env gesetzt.');
+    console.warn('\x1b[33m%s\x1b[0m', '[Auth]   Es wurde ein zufälliges Secret nur für diesen Prozess generiert.');
+    console.warn('\x1b[33m%s\x1b[0m', '[Auth]   Alle Logins werden bei jedem Server-Neustart ungültig. Bitte JWT_SECRET in .env setzen.');
 }
 
 /**
