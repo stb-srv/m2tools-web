@@ -9,6 +9,7 @@ node_modules/
 data/
 tmp/
 server/storage/data/
+public/basic/
 
 # Frontend build output (built by `npm run build` in frontend/)
 public/dist/
