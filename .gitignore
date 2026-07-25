@@ -10,6 +10,9 @@ data/
 tmp/
 server/storage/data/
 
+# Frontend build output (built by `npm run build` in frontend/)
+public/dist/
+
 # Logs
 *.log
 
