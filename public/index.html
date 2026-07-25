@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M2-Tools – Dashboard</title>
+    <meta name="description" content="M2-Tools - Professional Metin2 Development Toolkit">
+    
+    <!-- Core & Layout -->
+    <link rel="stylesheet" href="/shared/shared.css">
+    <script src="/core/theme.js"></script>
+    <script src="/core/i18n.js"></script>
+    <script src="/core/auth.js"></script>
+    <script src="/shared/utils.js"></script>
+    <script src="/shared/layout.js"></script>
+
+    <style>
+        .m2-main-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        header { text-align: center; padding: 40px 20px 40px; position: relative; width: 100%; max-width: 1200px; }
+        header h1 { font-size: 3.5rem; letter-spacing: 2px; font-family: var(--font-heading); color: var(--text-heading); }
+        header h1 .accent { color: var(--gold-primary); text-shadow: 0 0 15px var(--gold-glow); }
+        p.subtitle { font-size: 1.1rem; color: var(--text-secondary); margin-top: 10px; letter-spacing: 1px; }
+
+        .dashboard-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px; max-width: 1200px; width: 100%; padding: 20px;
+        }
+
+        .tile {
+            background: var(--bg-card); border: 1px solid var(--border-color);
+            border-radius: var(--radius-md); padding: 50px 30px; text-align: center;
+            text-decoration: none; color: inherit;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative; overflow: hidden;
+            display: flex; flex-direction: column; justify-content: center;
+            backdrop-filter: blur(15px);
+            animation: tileAppear 0.5s ease forwards;
+        }
+        .tile::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+            background: linear-gradient(90deg, transparent, var(--gold-accent), transparent);
+            opacity: 0; transition: opacity 0.4s;
+        }
+        .tile:hover { transform: translateY(-10px); border-color: var(--gold-primary); box-shadow: 0 15px 35px rgba(0,0,0,0.5), var(--shadow-gold); }
+        .tile:hover::before { opacity: 1; }
+        .tile-icon { font-size: 3.5rem; margin-bottom: 25px; color: var(--gold-primary); filter: drop-shadow(0 0 10px var(--gold-glow)); }
+        .tile-title { font-family: var(--font-heading); font-size: 1.6rem; margin-bottom: 12px; color: var(--text-heading); }
+        .tile-desc { font-size: 1rem; color: var(--text-secondary); line-height: 1.6; }
+        
+        .tile.disabled { opacity: 0.3; cursor: not-allowed; filter: grayscale(1); }
+        .tile.disabled:hover { transform: none; border-color: var(--border-color); box-shadow: none; }
+
+        .tag {
+            font-size: 0.7rem;
+            text-transform: uppercase; padding: 4px 10px; font-weight: 700;
+            border-radius: 4px; letter-spacing: 0.5px;
+            display: inline-block;
+        }
+        .tag.public { background: #2196F3; color: #fff; }
+        .tag.new { background: var(--success); color: #fff; }
+        .tag.coming-soon { background: var(--bg-input); color: var(--text-muted); }
+
+        .tile-status { position: absolute; top: 15px; left: 15px; }
+        .tile-new { position: absolute; top: 15px; right: 15px; }
+
+        footer { margin-top: auto; padding: 60px 40px; color: var(--text-muted); font-size: 0.9rem; text-align: center; }
+
+        @keyframes tileAppear { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+        .tile:nth-child(1) { animation-delay: 0.05s; }
+        .tile:nth-child(2) { animation-delay: 0.15s; }
+        .tile:nth-child(3) { animation-delay: 0.25s; }
+    </style>
+</head>
+<body>
+    <main class="m2-main-content">
+        <header>
+            <h1>M2 <span class="accent">TOOLS</span></h1>
+            <p class="subtitle" data-i18n="dashboard.subtitle">Modulare Metin2 Entwickler-Werkzeuge</p>
+        </header>
+
+        <div class="dashboard-grid" id="dashboard-grid">
+            <!-- Tiles generated dynamically -->
+        </div>
+
+    </main>
+
+    <script>
+        async function updateDashboard() {
+            try {
+                if (!window.m2Auth) { setTimeout(updateDashboard, 50); return; }
+
+                const user = window.m2Auth.getUser();
+                const res = await fetch('/api/auth/modules/status');
+                const modules = await res.json();
+                const grid = document.getElementById('dashboard-grid');
+                if (!grid) return;
+                grid.innerHTML = '';
+
+                modules.forEach(m => {
+                    const access = m.access_level;
+                    const canAccess = window.m2Auth.canAccess(access);
+
+                    // 1. Admin visibility check
+                    if (access === 'admin' && (!user || user.role !== 'admin')) return;
+
+                    // 1b. Guest visibility check
+                    if (!user && !m.is_visible_guests) return;
+
+                    // Do not show item_manager on the dashboard
+                    if (m.id === 'item_manager') return;
+
+                    // 2. Create Tile Element
+                    const tile = document.createElement('a');
+                    tile.id = `tile-${m.id.replace(/_/g, '-')}`;
+                    tile.className = 'tile';
+                    tile.href = m.url;
+                    
+                    // 3. Build Tags HTML
+                    let statusTagHtml = '';
+                    let newTagHtml = '';
+                    
+                    if (access === 'public') statusTagHtml = '<span class="tag public">🌐 Öffentlich</span>';
+                    else if (access === 'premium') statusTagHtml = '<span class="tag" style="background:var(--gold-primary); color:#000;">🌟 Premium</span>';
+                    else if (access === 'user') statusTagHtml = '<span class="tag" style="background:rgba(255,255,255,0.1); color:var(--text-secondary); border: 1px solid var(--border-color);">👤 Account benötigt</span>';
+
+                    if (m.created_at) {
+                        const created = new Date(m.created_at);
+                        const threeMonthsAgo = new Date();
+                        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+                        if (created > threeMonthsAgo) newTagHtml = '<span class="tag new">NEU</span>';
+                    }
+
+                    // 4. Set Tile Content
+                    tile.innerHTML = `
+                        <div class="tile-status">
+                            ${statusTagHtml}
+                        </div>
+                        <div class="tile-new">
+                            ${newTagHtml}
+                            <span class="tag" style="background:rgba(255,255,255,0.05); color:var(--text-muted); border: 1px solid var(--border-color); font-family:var(--font-mono);">${m.version || 'v1.0.0'}</span>
+                        </div>
+                        <div class="tile-icon">${m.icon || '🛠️'}</div>
+                        <div class="tile-title">${window.m2Safe.escape(m.name)}</div>
+                        <div class="tile-desc">${window.m2Safe.escape(m.desc)}</div>
+                    `;
+
+                    // 5. Handle Locking
+                    if (!canAccess) {
+                        tile.classList.add('disabled');
+                        tile.href = '#';
+                        const lock = document.createElement('div');
+                        lock.style = 'position:absolute; top:10px; left:10px; font-size:1.2rem; filter:none; opacity:1;';
+                        lock.textContent = '🔒';
+                        tile.appendChild(lock);
+                        
+                        tile.onclick = (e) => {
+                            e.preventDefault();
+                            if (!user) window.m2Alert('Zutritt verweigert', 'Anmeldung erforderlich.');
+                            else if (access === 'premium') window.m2Alert('Premium benötigt', 'Dieser Bereich ist nur für Premium-Nutzer.');
+                            else window.m2Alert('Kein Zugriff', 'Du hast keine Berechtigung für dieses Modul.');
+                        };
+                    }
+
+                    grid.appendChild(tile);
+                });
+
+            } catch (e) {
+                console.error('Dashboard Error:', e);
+            }
+        }
+        updateDashboard();
+    </script>
+</body>
+</html>
+</body>
+</html>
+

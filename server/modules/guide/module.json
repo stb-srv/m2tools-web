@@ -1,0 +1,10 @@
+{
+    "id": "guide",
+    "name": "Benutzerhandbuch",
+    "desc": "Ein interaktiver Guide für Workspaces, Teams und die Editoren.",
+    "icon": "📖",
+    "url": "/guide.html",
+    "api": null,
+    "defaultAccess": "public",
+    "category": "System"
+}

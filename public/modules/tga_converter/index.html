@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M2-Tools – PNG zu TGA Konverter</title>
+    
+    <!-- Core & Layout -->
+    <link rel="stylesheet" href="/shared/shared.css">
+    <link rel="stylesheet" href="style.css">
+    <script src="/core/theme.js"></script>
+    <script src="/core/i18n.js"></script>
+    <script src="/core/auth.js"></script>
+    <script src="/shared/layout.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body>
+    <main class="m2-main-content">
+        <!-- ── Page Header ───────────────────────────── -->
+        <div class="page-header">
+            <div class="header-breadcrumb">
+                <a href="/index.html">Dashboard</a> / <span class="accent-text">PNG ZU TGA KONVERTER</span>
+            </div>
+            
+            <div class="header-main-row">
+                <div>
+                    <h1>PNG zu <span class="accent">TGA</span> Konverter</h1>
+                    <p class="m2-hint">Ziehe transparente PNGs hinein und exportiere einsatzbereite TGAs direkt im Browser.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="converter-layout">
+            <!-- ── LEFT: INPUT & SETTINGS ── -->
+            <section class="converter-box glass-panel">
+                <div class="box-header">
+                    <h2>PNG-Eingabe</h2>
+                    <div class="box-meta">
+                        <span class="m2-badge">PNG, JPG unterstützt</span>
+                    </div>
+                </div>
+
+                <div class="drop-zone" id="drop-zone">
+                    <div class="drop-content">
+                        <div class="drop-icon">📤</div>
+                        <p class="main-text">PNGs hier ablegen oder zum Auswählen klicken</p>
+                        <p class="sub-text">Du kannst auch mehrere Dateien gleichzeitig hinzufügen.</p>
+                    </div>
+                    <input type="file" id="file-input" multiple accept="image/png, image/jpeg" style="display: none;">
+                </div>
+
+                <div class="settings-section">
+                    <h3 class="m2-label">Item-Größe auswählen</h3>
+                    <div class="size-selector">
+                        <div class="size-option active" data-size="1x1">
+                            <div class="size-preview s1x1"></div>
+                            <div class="size-info">
+                                <strong>1x1</strong>
+                                <span>32x32</span>
+                            </div>
+                        </div>
+                        <div class="size-option" data-size="1x2">
+                            <div class="size-preview s1x2"></div>
+                            <div class="size-info">
+                                <strong>1x2</strong>
+                                <span>32x64</span>
+                            </div>
+                        </div>
+                        <div class="size-option" data-size="1x3">
+                            <div class="size-preview s1x3"></div>
+                            <div class="size-info">
+                                <strong>1x3</strong>
+                                <span>32x96</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="export-area">
+                    <div class="export-info">
+                        <h3>TGA-Export</h3>
+                        <p>Exportiert das Bild im 32-Bit TGA Format inklusive Alpha-Kanal für Metin2.</p>
+                    </div>
+                    <button class="m2-btn m2-btn-primary" id="download-btn" disabled>
+                        TGA HERUNTERLADEN
+                    </button>
+                </div>
+            </section>
+
+            <!-- ── RIGHT: PREVIEW ── -->
+            <section class="preview-box glass-panel">
+                <div class="box-header">
+                    <h2>Vorschau</h2>
+                    <span class="preview-dim" id="preview-dim">32x32</span>
+                </div>
+
+                <div class="preview-container">
+                    <div class="preview-placeholder" id="preview-placeholder">
+                        <div class="p-icon">🖼️</div>
+                        <p>Noch kein Bild geladen</p>
+                    </div>
+                    <div class="preview-stage hidden" id="preview-stage">
+                        <div class="canvas-wrapper">
+                            <canvas id="preview-canvas"></canvas>
+                        </div>
+                        <div class="preview-nav">
+                            <button class="nav-btn" id="prev-preview" title="Vorheriges">◀</button>
+                            <span class="nav-info"><span id="curr-num">1</span> / <span id="total-num">10</span></span>
+                            <button class="nav-btn" id="next-preview" title="Nächstes">▶</button>
+                        </div>
+                        <p class="m2-hint">Vorschau (4x vergrößert für Details)</p>
+                    </div>
+                </div>
+
+                <!-- Hidden canvas for real size processing -->
+                <canvas id="export-canvas" style="display: none;"></canvas>
+            </section>
+        </div>
+
+        <section class="file-list-section" style="margin-top: 40px;">
+            <h3 class="m2-label">Geladene Dateien (<span id="file-count">0</span>)</h3>
+            <div class="file-grid" id="file-grid">
+                <!-- Dynamic File Items -->
+            </div>
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>

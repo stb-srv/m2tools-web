@@ -1,0 +1,10 @@
+{
+    "id": "special_item_group",
+    "name": "Spezielle Item-Gruppe",
+    "desc": "Bearbeite Truheninhalte und Item-Drops deiner special_item_group.txt.",
+    "icon": "🎁",
+    "url": "/modules/special_item_group/index.html",
+    "api": "/api/special_item_group",
+    "defaultAccess": "public",
+    "category": "Development"
+}

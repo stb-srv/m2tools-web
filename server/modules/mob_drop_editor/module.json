@@ -1,0 +1,10 @@
+{
+    "id": "mob_drop_editor",
+    "name": "Mob-Drop Editor",
+    "desc": "Automatische Korrektur von Gruppennamen und Item-Drops verwalten.",
+    "icon": "📦",
+    "url": "/modules/mob_drop_editor/index.html",
+    "api": "/api/mob_drop",
+    "defaultAccess": "public",
+    "category": "Development"
+}

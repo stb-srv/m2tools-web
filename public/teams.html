@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M2-Tools – Team Manager</title>
+    
+    <!-- Core & Layout -->
+    <link rel="stylesheet" href="/shared/shared.css">
+    <script src="/core/theme.js"></script>
+    <script src="/core/i18n.js"></script>
+    <script src="/core/auth.js"></script>
+    <script src="/shared/utils.js"></script>
+    <script src="/shared/layout.js"></script>
+
+    <style>
+        .teams-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 25px;
+            margin-top: 30px;
+        }
+
+        .team-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 25px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            transition: var(--transition);
+        }
+
+        .team-card:hover {
+            border-color: var(--gold-primary);
+            box-shadow: 0 0 20px var(--gold-glow);
+        }
+
+        .team-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 15px;
+        }
+
+        .team-name {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--gold-primary);
+            font-family: var(--font-heading);
+        }
+
+        .member-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .member-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-input);
+            padding: 10px 15px;
+            border-radius: var(--radius-sm);
+        }
+
+        .member-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 0.9rem;
+        }
+
+        .member-role {
+            font-size: 0.7rem;
+            background: var(--gold-subtle);
+            color: var(--gold-primary);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .add-member-form {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .empty-state {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 60px;
+            background: var(--bg-card);
+            border: 1px dashed var(--border-color);
+            border-radius: var(--radius-md);
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <main class="m2-main-content">
+        <header style="text-align: center; margin-bottom: 50px;">
+            <h1 style="font-family: var(--font-heading); font-size: 3rem; letter-spacing: 2px;">
+                👥 TEAM <span style="color: var(--gold-primary); text-shadow: 0 0 15px var(--gold-glow);">MANAGER</span>
+            </h1>
+            <p style="color: var(--text-secondary); margin-top: 10px;">Verwalte deine Teams und arbeite gemeinsam an Projekten.</p>
+        </header>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+            <button class="m2-btn m2-btn-primary" onclick="showCreateTeam()">
+                ✨ <span data-i18n="workspaces.teams_create">Neues Team erstellen</span>
+            </button>
+            <a href="/workspaces.html" class="m2-btn m2-btn-secondary" style="text-decoration:none;">
+                📂 <span data-i18n="workspaces.back">Workspaces</span>
+            </a>
+        </div>
+
+        <div id="teams-container" class="teams-grid">
+            <!-- Teams will be loaded here -->
+            <div class="empty-state">
+                <i class="fas fa-spinner fa-spin"></i> Lade Teams...
+            </div>
+        </div>
+    </main>
+
+    <script src="/js/teams.js"></script>
+</body>
+</html>

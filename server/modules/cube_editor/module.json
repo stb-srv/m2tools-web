@@ -1,0 +1,10 @@
+{
+    "id": "cube_editor",
+    "name": "Cube Editor",
+    "desc": "Bearbeite professionelle Crafting-Rezepte direkt in deiner cube.txt.",
+    "icon": "🛠️",
+    "url": "/modules/cube_editor/index.html",
+    "api": "/api/cube",
+    "defaultAccess": "public",
+    "category": "Development"
+}

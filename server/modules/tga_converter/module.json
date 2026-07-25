@@ -1,0 +1,10 @@
+{
+    "id": "tga_converter",
+    "name": "TGA Converter",
+    "desc": "Konvertiere PNG/JPG Icons professionell in das Metin2 TGA-Format.",
+    "icon": "🖼️",
+    "url": "/modules/tga_converter/index.html",
+    "api": "/api/tga",
+    "defaultAccess": "public",
+    "category": "Development"
+}

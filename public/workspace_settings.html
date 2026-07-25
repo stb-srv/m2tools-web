@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M2-Tools – Workspace Settings</title>
+    
+    <!-- Core & Layout -->
+    <link rel="stylesheet" href="/shared/shared.css">
+    <script src="/core/theme.js"></script>
+    <script src="/core/i18n.js"></script>
+    <script src="/core/auth.js"></script>
+    <script src="/shared/layout.js"></script>
+
+    <style>
+        .settings-container { max-width: 800px; margin: 40px auto; padding: 0 20px; }
+        
+        .settings-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 30px;
+            margin-bottom: 30px;
+        }
+
+        .settings-header { display: flex; align-items: center; gap: 20px; margin-bottom: 40px; }
+        .settings-header h1 { font-size: 2.2rem; color: var(--gold-primary); margin: 0; }
+        
+        .upload-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .upload-box {
+            background: var(--bg-hover);
+            border: 2px dashed var(--border-color);
+            border-radius: var(--radius-sm);
+            padding: 20px;
+            text-align: center;
+            transition: var(--transition);
+            cursor: pointer;
+        }
+
+        .upload-box:hover { border-color: var(--gold-primary); background: rgba(212, 175, 55, 0.05); }
+        .upload-box i { font-size: 2rem; color: var(--gold-secondary); margin-bottom: 10px; display: block; }
+        .upload-box span { font-size: 0.9rem; color: var(--text-secondary); }
+
+        .hidden-file { display: none; }
+        
+        .progress-container { margin-top: 10px; display: none; }
+        .progress-bar { height: 4px; background: var(--bg-input); border-radius: 2px; overflow: hidden; }
+        .progress-fill { height: 100%; background: var(--gold-primary); width: 0%; transition: width 0.3s; }
+    </style>
+</head>
+<body>
+    <main class="settings-container">
+        <div style="margin-bottom: 20px;">
+            <a href="/workspaces.html" class="m2-btn m2-btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; gap:8px;">
+                ⬅ <span data-i18n="workspaces.back_to_list">Workspaces List</span>
+            </a>
+        </div>
+
+        <div class="settings-header">
+            <div class="m2-avatar" id="ws-avatar" style="width: 60px; height: 60px; font-size: 1.5rem;">W</div>
+            <div>
+                <h1 id="ws-title">Workspace Settings</h1>
+                <p id="ws-meta" style="color: var(--text-muted); font-size: 0.9rem;">ID: -</p>
+            </div>
+        </div>
+
+        <div class="settings-card">
+            <h2 style="font-size: 1.2rem; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                📂 <span data-i18n="workspaces.upload_title">Sachen Hochladen</span>
+            </h2>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 25px;">
+                Lade hier deine Spieldaten hoch, um sie in den Editoren zu verwenden.
+            </p>
+
+            <div class="upload-section">
+                <!-- Proto DB -->
+                <div class="upload-box" onclick="document.getElementById('file-db').click()">
+                    <input type="file" id="file-db" class="hidden-file" accept=".db" onchange="uploadFile('db')">
+                    <i class="fas fa-database"></i>
+                    <strong data-i18n="workspaces.proto_db">proto.db</strong><br>
+                    <span>SQLite Format (item_proto, mob_proto)</span>
+                    <div id="progress-db" class="progress-container">
+                        <div class="progress-bar"><div class="progress-fill"></div></div>
+                    </div>
+                </div>
+
+                <!-- Icons ZIP -->
+                <div class="upload-box" onclick="document.getElementById('file-icons').click()">
+                    <input type="file" id="file-icons" class="hidden-file" accept=".zip" onchange="uploadFile('icons')">
+                    <i class="fas fa-image"></i>
+                    <strong data-i18n="workspaces.icons_zip">icons.zip</strong><br>
+                    <span>ZIP mit .png oder .tga Dateien</span>
+                    <div id="progress-icons" class="progress-container">
+                        <div class="progress-bar"><div class="progress-fill"></div></div>
+                    </div>
+                </div>
+
+                <!-- Item Proto TXT -->
+                <div class="upload-box" onclick="document.getElementById('file-item_proto').click()">
+                    <input type="file" id="file-item_proto" class="hidden-file" accept=".txt" onchange="uploadFile('item_proto')">
+                    <i class="fas fa-scroll"></i>
+                    <strong data-i18n="workspaces.upload_item_proto">item_proto.txt</strong><br>
+                    <span data-i18n="workspaces.upload_item_desc">Tab-separierte item_proto.txt</span>
+                    <div id="progress-item_proto" class="progress-container">
+                        <div class="progress-bar"><div class="progress-fill"></div></div>
+                    </div>
+                </div>
+
+                <!-- Mob Proto TXT -->
+                <div class="upload-box" onclick="document.getElementById('file-mob_proto').click()">
+                    <input type="file" id="file-mob_proto" class="hidden-file" accept=".txt" onchange="uploadFile('mob_proto')">
+                    <i class="fas fa-dragon"></i>
+                    <strong data-i18n="workspaces.upload_mob_proto">mob_proto.txt</strong><br>
+                    <span data-i18n="workspaces.upload_mob_desc">Tab-separierte mob_proto.txt</span>
+                    <div id="progress-mob_proto" class="progress-container">
+                        <div class="progress-bar"><div class="progress-fill"></div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings-card">
+            <h2 style="font-size: 1.2rem; margin-bottom: 20px;" data-i18n="workspaces.info_title">Workspace Details</h2>
+            <div class="m2-field-group">
+                <label data-i18n="workspaces.name">Name</label>
+                <input type="text" id="ws-name" class="m2-input" readonly>
+            </div>
+            <div class="m2-field-group" style="margin-top: 15px;">
+                <label data-i18n="workspaces.description">Beschreibung</label>
+                <textarea id="ws-desc" class="m2-input" style="height: 60px;" readonly></textarea>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const wsId = urlParams.get('id');
+
+        if (!wsId) {
+            window.location.href = '/workspaces.html';
+        }
+
+        async function loadDetails() {
+            if (!window.m2Auth) { setTimeout(loadDetails, 50); return; }
+            try {
+                const res = await window.m2Auth.authFetch(`/api/workspaces/${wsId}`);
+                if (!res.ok) throw new Error('Workspace nicht gefunden');
+                const ws = await res.json();
+                
+                document.getElementById('ws-title').textContent = ws.name;
+                document.getElementById('ws-avatar').textContent = ws.name.charAt(0).toUpperCase();
+                document.getElementById('ws-meta').textContent = `ID: ${ws.id} • Erstellt: ${new Date(ws.created_at).toLocaleDateString()}`;
+                document.getElementById('ws-name').value = ws.name;
+                document.getElementById('ws-desc').value = ws.description || '';
+            } catch (e) {
+                window.m2Toast('Fehler: ' + e.message, 'error');
+                setTimeout(() => window.location.href = '/workspaces.html', 2000);
+            }
+        }
+
+        async function uploadFile(type) {
+            const fileInput = document.getElementById(`file-${type}`);
+            const progress = document.getElementById(`progress-${type}`);
+            const fill = progress.querySelector('.progress-fill');
+            const file = fileInput.files[0];
+            
+            if (!file) return;
+
+            progress.style.display = 'block';
+            fill.style.width = '0%';
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch(`/api/workspaces/${wsId}/upload/${type}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${window.m2Auth.getToken()}`
+                    },
+                    body: formData
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    fill.style.width = '100%';
+                    let msg = '';
+                    if (type === 'db') msg = 'Datenbank erfolgreich hochgeladen!';
+                    else if (type === 'icons') msg = 'Icons erfolgreich hochgeladen!';
+                    else if (type === 'item_proto') msg = window.m2i18n.t('workspaces.upload_success_item');
+                    else if (type === 'mob_proto') msg = window.m2i18n.t('workspaces.upload_success_mob');
+                    
+                    window.m2Toast(msg, 'success');
+                } else {
+                    throw new Error(result.error || 'Upload fehlgeschlagen');
+                }
+            } catch (e) {
+                window.m2Toast(e.message, 'error');
+            } finally {
+                setTimeout(() => { progress.style.display = 'none'; }, 2000);
+                fileInput.value = '';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', loadDetails);
+    </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+    "id": "item_manager",
+    "name": "Item-Manager & Icons",
+    "desc": "Verwalte Namen, VNUMs und Iconbox-Größen zentral.",
+    "icon": "🎒",
+    "url": "/modules/item_manager/index.html",
+    "api": "/api/admin/items",
+    "defaultAccess": "admin",
+    "category": "Admin"
+}

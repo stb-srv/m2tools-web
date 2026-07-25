@@ -1,0 +1,10 @@
+{
+    "id": "teams",
+    "name": "Teams",
+    "desc": "Erstelle Teams und arbeite gemeinsam an Projekten.",
+    "icon": "👥",
+    "url": "/teams.html",
+    "api": "/api/teams",
+    "defaultAccess": "user",
+    "category": "System"
+}

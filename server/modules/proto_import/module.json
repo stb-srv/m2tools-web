@@ -1,0 +1,10 @@
+{
+    "id": "proto_import",
+    "name": "Proto Importer",
+    "desc": "Importiere deine eigene item_proto oder mob_proto in die Datenbank.",
+    "icon": "📥",
+    "url": "/modules/proto_import/index.html",
+    "api": "/api/proto",
+    "defaultAccess": "user",
+    "category": "Database"
+}

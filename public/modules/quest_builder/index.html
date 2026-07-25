@@ -1,0 +1,448 @@
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M2-Tools – Quest Builder</title>
+    <meta name="description" content="Step-by-Step Quest Builder for Metin2 - Create quests visually">
+    
+    <!-- Core & Layout -->
+    <link rel="stylesheet" href="/shared/shared.css">
+    <link rel="stylesheet" href="style.css">
+    <script src="/core/theme.js"></script>
+    <script src="/core/i18n.js"></script>
+    <script src="/core/auth.js"></script>
+    <script src="/shared/item_service.js"></script>
+    <script src="/shared/utils.js"></script>
+    <script src="/shared/layout.js"></script>
+</head>
+<body>
+    <div class="m2-main-content">
+        <header>
+            <div class="header-row">
+                <h1>M2 <span class="accent">QUEST</span></h1>
+                <div class="header-actions">
+                    <button class="m2-btn m2-btn-secondary small" id="import-quest-btn" data-i18n="quest_builder.import_quest">📂 Import</button>
+                    <input type="file" id="import-quest-file" accept=".quest,.lua,.txt" class="hidden">
+                    <button class="m2-btn m2-btn-secondary small" id="reset-quest-btn">🔄 Reset</button>
+                    <button class="m2-btn m2-btn-primary small" id="save-draft-btn">💾 Entwurf speichern</button>
+                </div>
+            </div>
+            <p class="subtitle">Professioneller Metin2 Quest-Editor</p>
+        </header>
+
+
+
+        <!-- ═══ Progress Bar ═══════════════════════════════ -->
+        <div class="wizard-progress">
+            <div class="progress-track">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <div class="progress-steps" id="progress-steps">
+                <div class="progress-step active" data-step="0">
+                    <div class="step-dot">1</div>
+                    <span class="step-label">Grundlagen</span>
+                </div>
+                <div class="progress-step" data-step="1">
+                    <div class="step-dot">2</div>
+                    <span class="step-label">Trigger</span>
+                </div>
+                <div class="progress-step" data-step="2">
+                    <div class="step-dot">3</div>
+                    <span class="step-label">Bedingungen</span>
+                </div>
+                <div class="progress-step" data-step="3">
+                    <div class="step-dot">4</div>
+                    <span class="step-label">Dialog</span>
+                </div>
+                <div class="progress-step" data-step="4">
+                    <div class="step-dot">5</div>
+                    <span class="step-label">Aktionen</span>
+                </div>
+                <div class="progress-step" data-step="5">
+                    <div class="step-dot">6</div>
+                    <span class="step-label">Verzweigung</span>
+                </div>
+                <div class="progress-step" data-step="6">
+                    <div class="step-dot">7</div>
+                    <span class="step-label">Code & Export</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ STEP 0: Grundlagen ═════════════════════════ -->
+        <div class="wizard-step active" id="step-0">
+            <div class="step-card">
+                <div class="step-header">
+                    <span class="step-number">01</span>
+                    <div>
+                        <h2>📜 Quest Grundlagen</h2>
+                        <p class="step-desc">Gib deinem Quest einen Namen und erstelle die States (Zustände) die dein Quest durchlaufen soll.</p>
+                    </div>
+                </div>
+
+                <div class="step-content">
+                    <div class="info-box">
+                        <strong>💡 Was sind States?</strong>
+                        <p>Ein Quest besteht aus mehreren <em>States</em> (Zuständen). Der Spieler wechselt zwischen States basierend auf seinen Aktionen. Jeder Quest beginnt immer im State <code>start</code>.</p>
+                    </div>
+
+                    <div class="m2-field-group">
+                        <label class="m2-label">Quest-Name</label>
+                        <input type="text" id="quest-name" placeholder="mein_erster_quest" class="m2-input">
+                        <span class="m2-hint">Nutze nur Buchstaben, Zahlen und Unterstriche.</span>
+                    </div>
+
+                    <div class="templates-section" style="margin-bottom: 30px; background: rgba(0,0,0,0.1); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 15px;">
+                        <label class="m2-label" style="margin-bottom:10px; display:block;">📚 Komplett fertige Vorlage laden (Überschreibt deine Daten)</label>
+                        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                            <button class="m2-btn m2-btn-secondary small" onclick="loadTemplate('dialog')">💬 NPC Dialog</button>
+                            <button class="m2-btn m2-btn-secondary small" onclick="loadTemplate('kill')">⚔️ Sammel-/Kill-Quest</button>
+                            <button class="m2-btn m2-btn-secondary small" onclick="loadTemplate('buff')">🌟 Attribute Item</button>
+                            <button class="m2-btn m2-btn-secondary small" onclick="loadTemplate('login')">🔑 Login & Level-Up</button>
+                        </div>
+                    </div>
+
+                    <div class="states-section">
+                        <div class="section-title-row">
+                            <h3>📋 States verwalten</h3>
+                            <button class="m2-btn m2-btn-secondary small" id="add-state-btn">+ State hinzufügen</button>
+                        </div>
+                        <div class="state-chips" id="state-chips">
+                            <!-- Rendered by JS -->
+                        </div>
+                        <div class="m2-field-group" style="max-width:300px">
+                            <label class="m2-label">Aktiver State</label>
+                            <select id="active-state-select" class="m2-select">
+                                <!-- Options rendered by JS -->
+                            </select>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ STEP 1: Trigger ════════════════════════════ -->
+        <div class="wizard-step" id="step-1">
+            <div class="step-card">
+                <div class="step-header">
+                    <span class="step-number">02</span>
+                    <div>
+                        <h2>⚡ Trigger wählen</h2>
+                        <p class="step-desc">Wähle aus, welches Event den Quest-Code in diesem State auslöst.</p>
+                    </div>
+                </div>
+                <div class="step-content">
+                    <div class="info-box">
+                        <strong>💡 Was ist ein Trigger?</strong>
+                        <p>Ein Trigger bestimmt <em>wann</em> der Quest-Code ausgeführt wird. Z.B. wenn ein Spieler einen NPC anklickt, ein Monster tötet oder sich einloggt.</p>
+                    </div>
+
+                    <div class="active-state-badge" id="trigger-state-badge">State: <span class="accent">start</span></div>
+
+                    <div class="trigger-type-grid" id="trigger-type-grid">
+                        <button class="trigger-card selected" data-type="click">
+                            <span class="tc-icon">👤</span>
+                            <span class="tc-name">NPC Klick</span>
+                            <span class="tc-desc">Spieler klickt einen NPC an</span>
+                        </button>
+                        <button class="trigger-card" data-type="kill">
+                            <span class="tc-icon">⚔️</span>
+                            <span class="tc-name">Monster töten</span>
+                            <span class="tc-desc">Spieler tötet ein bestimmtes Monster</span>
+                        </button>
+                        <button class="trigger-card" data-type="login">
+                            <span class="tc-icon">🔑</span>
+                            <span class="tc-name">Login</span>
+                            <span class="tc-desc">Spieler loggt sich ein</span>
+                        </button>
+                        <button class="trigger-card" data-type="levelup">
+                            <span class="tc-icon">⬆️</span>
+                            <span class="tc-name">Level-Up</span>
+                            <span class="tc-desc">Spieler steigt ein Level auf</span>
+                        </button>
+                        <button class="trigger-card" data-type="use">
+                            <span class="tc-icon">🎒</span>
+                            <span class="tc-name">Item benutzen</span>
+                            <span class="tc-desc">Spieler benutzt ein bestimmtes Item</span>
+                        </button>
+                        <button class="trigger-card" data-type="button">
+                            <span class="tc-icon">📩</span>
+                            <span class="tc-name">Quest-Button</span>
+                            <span class="tc-desc">Spieler klickt den Quest-Button</span>
+                        </button>
+                        <button class="trigger-card" data-type="timer">
+                            <span class="tc-icon">⏱️</span>
+                            <span class="tc-name">Timer</span>
+                            <span class="tc-desc">Ein Timer läuft ab</span>
+                        </button>
+                        <button class="trigger-card" data-type="chat">
+                            <span class="tc-icon">💬</span>
+                            <span class="tc-name">Chat-Befehl</span>
+                            <span class="tc-desc">Spieler gibt einen Befehl ein</span>
+                        </button>
+                        <button class="trigger-card" data-type="enter">
+                            <span class="tc-icon">🚪</span>
+                            <span class="tc-name">Bereich betreten</span>
+                            <span class="tc-desc">Spieler betritt eine Zone</span>
+                        </button>
+                    </div>
+
+                    <!-- Dynamic target input -->
+                    <div class="trigger-target-section" id="trigger-target-section">
+                        <div class="m2-field-group" id="trigger-npc-field">
+                            <label class="m2-label">🔍 NPC auswählen</label>
+                            <div class="search-input-wrapper">
+                                <input type="text" id="trigger-npc-search" placeholder="NPC suchen (Name oder VNUM)..." class="m2-input">
+                                <div class="search-results hidden" id="trigger-npc-results"></div>
+                            </div>
+                        </div>
+                        <div class="m2-field-group hidden" id="trigger-mob-field">
+                            <label class="m2-label">🔍 Monster auswählen</label>
+                            <div class="search-input-wrapper">
+                                <input type="text" id="trigger-mob-search" placeholder="Monster suchen (Name oder VNUM)..." class="m2-input">
+                                <div class="search-results hidden" id="trigger-mob-results"></div>
+                            </div>
+                        </div>
+                        <div class="m2-field-group hidden" id="trigger-item-field">
+                            <label class="m2-label">🔍 Item auswählen</label>
+                            <div class="search-input-wrapper">
+                                <input type="text" id="trigger-item-search" placeholder="Item suchen (Name oder VNUM)..." class="m2-input">
+                                <div class="search-results hidden" id="trigger-item-results"></div>
+                            </div>
+                        </div>
+                        <div class="m2-field-group hidden" id="trigger-chat-field">
+                            <label class="m2-label">💬 Chat-Befehl</label>
+                            <input type="text" id="trigger-chat-text" placeholder="/questbefehl" class="m2-input">
+                        </div>
+                        <div class="m2-field-group hidden" id="trigger-timer-field">
+                            <label class="m2-label">⏱️ Timer-Name</label>
+                            <input type="text" id="trigger-timer-name" placeholder="my_timer" class="m2-input">
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ STEP 2: Bedingungen ════════════════════════ -->
+        <div class="wizard-step" id="step-2">
+            <div class="step-card">
+                <div class="step-header">
+                    <span class="step-number">03</span>
+                    <div>
+                        <h2>🔍 Bedingungen <span class="optional-badge">Optional</span></h2>
+                        <p class="step-desc">Setze Voraussetzungen die erfüllt sein müssen, damit der Quest-Code ausgeführt wird.</p>
+                    </div>
+                </div>
+                <div class="step-content">
+                    <div class="info-box">
+                        <strong>💡 Wann brauche ich Bedingungen?</strong>
+                        <p>Bedingungen prüfen z.B. ob der Spieler ein bestimmtes Level hat, genug Gold besitzt oder ein Item im Inventar hat. Ohne Bedingungen wird der Quest immer ausgeführt.</p>
+                    </div>
+
+                    <div class="active-state-badge" id="cond-state-badge">State: <span class="accent">start</span></div>
+
+                    <div id="conditions-list" class="items-list">
+                        <!-- Conditions rendered by JS -->
+                    </div>
+
+                    <div class="add-row">
+                        <button class="m2-btn m2-btn-secondary" id="add-condition-btn">+ Bedingung hinzufügen</button>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ STEP 3: Dialog ═════════════════════════════ -->
+        <div class="wizard-step" id="step-3">
+            <div class="step-card">
+                <div class="step-header">
+                    <span class="step-number">04</span>
+                    <div>
+                        <h2>💬 Dialog erstellen <span class="optional-badge">Optional</span></h2>
+                        <p class="step-desc">Schreibe den Text, den der NPC dem Spieler sagt.</p>
+                    </div>
+                </div>
+                <div class="step-content">
+                    <div class="info-box">
+                        <strong>💡 Wie funktionieren Dialoge?</strong>
+                        <p>NPC-Dialoge erscheinen als Textfenster im Spiel. Der <em>Titel</em> wird oben angezeigt, die <em>Zeilen</em> sind der Inhalt. Jede Zeile wird separat als <code>say()</code> ausgegeben.</p>
+                    </div>
+
+                    <div class="active-state-badge" id="dialog-state-badge">State: <span class="accent">start</span></div>
+
+                    <div class="dialog-editor">
+                        <div class="m2-field-group">
+                            <label class="m2-label">📌 Dialog-Titel</label>
+                            <input type="text" id="dialog-title" placeholder="Quest: Die verlorene Glocke" class="m2-input">
+                        </div>
+                        <div class="m2-field-group">
+                            <label class="m2-label">📝 Dialog-Text</label>
+                            <div id="dialog-lines" class="dialog-lines" style="margin-bottom:15px">
+                                <!-- Rendered by JS -->
+                            </div>
+                            <button class="m2-btn m2-btn-secondary small" id="add-dialog-line-btn">+ Zeile hinzufügen</button>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ STEP 4: Aktionen ═══════════════════════════ -->
+        <div class="wizard-step" id="step-4">
+            <div class="step-card">
+                <div class="step-header">
+                    <span class="step-number">05</span>
+                    <div>
+                        <h2>⚙️ Aktionen festlegen</h2>
+                        <p class="step-desc">Bestimme, was passiert wenn der Quest ausgelöst wird.</p>
+                    </div>
+                </div>
+                <div class="step-content">
+                    <div class="info-box">
+                        <strong>💡 Was sind Aktionen?</strong>
+                        <p>Aktionen sind die Dinge die passieren: Items geben, Gold verteilen, den Spieler teleportieren, den Quest-State wechseln, usw.</p>
+                    </div>
+
+                    <div class="active-state-badge" id="action-state-badge">State: <span class="accent">start</span></div>
+
+                    <div id="actions-list" class="items-list">
+                        <!-- Actions rendered by JS -->
+                    </div>
+
+                    <div class="add-row">
+                        <button class="m2-btn m2-btn-secondary" id="add-action-btn">+ Aktion hinzufügen</button>
+                    </div>
+
+
+                    <div class="action-presets">
+                        <span class="presets-label">Schnellauswahl:</span>
+                        <button class="preset-chip" data-preset="give_item">🎁 Item geben</button>
+                        <button class="preset-chip" data-preset="give_gold">💰 Gold geben</button>
+                        <button class="preset-chip" data-preset="set_state">🔄 State wechseln</button>
+                        <button class="preset-chip" data-preset="warp">🌀 Teleportieren</button>
+                        <button class="preset-chip" data-preset="notice">📢 Nachricht</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ STEP 5: Verzweigung ════════════════════════ -->
+        <div class="wizard-step" id="step-5">
+            <div class="step-card">
+                <div class="step-header">
+                    <span class="step-number">06</span>
+                    <div>
+                        <h2>❓ Verzweigung <span class="optional-badge">Optional</span></h2>
+                        <p class="step-desc">Gib dem Spieler Auswahlmöglichkeiten mit verschiedenen Ergebnissen.</p>
+                    </div>
+                </div>
+                <div class="step-content">
+                    <div class="info-box">
+                        <strong>💡 Wie funktioniert select()?</strong>
+                        <p>Mit <code>select()</code> zeigst du dem Spieler mehrere Optionen. Je nach Wahl werden unterschiedliche Aktionen ausgeführt – z.B. quest annehmen oder ablehnen.</p>
+                    </div>
+
+                    <div class="active-state-badge" id="select-state-badge">State: <span class="accent">start</span></div>
+
+                    <div id="select-options-list" class="items-list">
+                        <!-- Select options rendered by JS -->
+                    </div>
+
+                    <div class="add-row">
+                        <button class="m2-btn m2-btn-secondary" id="add-select-option-btn">+ Auswahl-Option hinzufügen</button>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ STEP 6: Code & Export ══════════════════════ -->
+        <div class="wizard-step" id="step-6">
+            <div class="step-card">
+                <div class="step-header">
+                    <span class="step-number">07</span>
+                    <div>
+                        <h2>📝 Fertiger Lua-Code</h2>
+                        <p class="step-desc">Dein Quest ist fertig! Hier ist der generierte Code.</p>
+                    </div>
+                </div>
+                <div class="step-content">
+                    <div class="info-box success-box">
+                        <strong>🎉 Quest fertig!</strong>
+                        <p>Kopiere den Code oder exportiere ihn als <code>.quest</code> Datei. Du kannst die Datei direkt in deinen Metin2 Server-Questordner kopieren.</p>
+                    </div>
+
+                    <div class="code-actions-bar">
+                        <button class="btn ghost" id="copy-code-btn" data-i18n="quest_builder.copy_code">📋 Code kopieren</button>
+                        <button class="btn primary" id="export-quest-btn" data-i18n="quest_builder.export_quest">⬇️ Als .quest exportieren</button>
+                        <button class="btn ghost" id="export-lua-btn">⬇️ Als .lua exportieren</button>
+                    </div>
+
+                    <pre class="code-block"><code id="code-output">-- Quest wird generiert...</code></pre>
+
+                    <div class="quest-summary" id="quest-summary">
+                        <!-- Summary rendered by JS -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ Navigation Bar ═════════════════════════════ -->
+        <div class="wizard-nav" id="wizard-nav">
+            <button class="m2-btn m2-btn-secondary" id="prev-btn" disabled>← Zurück</button>
+            <div class="nav-info">
+                <span id="nav-step-label">Schritt 1 von 7</span>
+            </div>
+            <button class="m2-btn m2-btn-primary" id="next-btn">Weiter →</button>
+        </div>
+
+
+    </div>
+
+    <!-- Templates for dynamic items -->
+    <template id="action-template">
+        <div class="action-row">
+            <select class="m2-select action-type">
+                <option value="give_item">🎁 Item geben</option>
+                <option value="remove_item">❌ Item entfernen</option>
+                <option value="give_gold">💰 Gold geben</option>
+                <option value="remove_gold">💸 Gold abziehen</option>
+                <option value="set_state">🔄 State wechseln</option>
+                <option value="set_flag">🏁 Quest-Flag setzen</option>
+                <option value="send_letter">✉️ Brief senden</option>
+                <option value="warp">🌀 Teleportieren</option>
+                <option value="spawn_mob">👹 Mob spawnen</option>
+                <option value="set_timer">⏱️ Timer setzen</option>
+                <option value="clear_timer">⏹️ Timer löschen</option>
+                <option value="notice">📢 Nachricht senden</option>
+                <option value="custom_lua">📝 Eigener Lua-Code</option>
+            </select>
+            <div class="action-params"></div>
+            <button class="btn-icon action-remove" title="Entfernen">✕</button>
+        </div>
+    </template>
+
+
+    <template id="condition-template">
+        <div class="condition-row">
+            <select class="m2-select condition-type">
+                <option value="level_check">⬆️ Level-Check</option>
+                <option value="item_check">🎒 Item-Check</option>
+                <option value="gold_check">💰 Gold-Check</option>
+                <option value="flag_check">🏁 Flag-Check</option>
+                <option value="race_check">🛡️ Klassen-Check</option>
+                <option value="alignment_check">⚖️ Gesinnung-Check</option>
+            </select>
+            <div class="condition-params"></div>
+            <button class="btn-icon condition-remove" title="Entfernen">✕</button>
+        </div>
+    </template>
+
+
+    <script src="app.js"></script>
+</body>
+</html>
+

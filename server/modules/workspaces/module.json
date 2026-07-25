@@ -1,0 +1,10 @@
+{
+    "id": "workspaces",
+    "name": "Workspaces",
+    "desc": "Verwalte verschiedene Server-Profile und Bearbeitungsumgebungen.",
+    "icon": "📁",
+    "url": "/workspaces.html",
+    "api": "/api/workspaces",
+    "defaultAccess": "user",
+    "category": "System"
+}

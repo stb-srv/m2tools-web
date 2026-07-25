@@ -1,0 +1,10 @@
+{
+    "id": "quest_builder",
+    "name": "Quest Builder",
+    "desc": "Erstelle Schritt für Schritt Metin2 Quests und generiere Lua-Code.",
+    "icon": "📜",
+    "url": "/modules/quest_builder/index.html",
+    "api": "/api/quest",
+    "defaultAccess": "user",
+    "category": "Development"
+}
