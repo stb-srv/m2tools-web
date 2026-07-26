@@ -10,6 +10,7 @@ const routes = [
     { path: '/index.html', name: 'dashboard', component: () => import('@/pages/Dashboard.vue') },
     { path: '/login.html', name: 'login', component: () => import('@/pages/Login.vue') },
     { path: '/register.html', name: 'register', component: () => import('@/pages/Register.vue') },
+    { path: '/setup.html', name: 'setup', component: () => import('@/pages/Setup.vue') },
     { path: '/account.html', name: 'account', component: () => import('@/pages/Account.vue'), meta: { requiresAuth: true } },
     { path: '/admin.html', name: 'admin', component: () => import('@/pages/Admin.vue'), meta: { requiresAuth: true, requiresRole: 'admin' } },
     { path: '/teams.html', name: 'teams', component: () => import('@/pages/Teams.vue'), meta: { moduleId: 'teams' } },
@@ -46,6 +47,21 @@ const router = createRouter({
  */
 router.beforeEach(async (to) => {
     const auth = useAuthStore();
+
+    // Blanket first check: while the in-app setup wizard hasn't run yet
+    // (no JWT_SECRET/CREDENTIALS_ENCRYPTION_KEY configured on the server,
+    // see server/config/runtimeConfig.js), every route redirects there -
+    // nothing else in the app is meaningfully usable without it (there
+    // isn't even an admin account yet). Once it's done, /setup.html itself
+    // redirects away instead (defense in depth alongside the backend's own
+    // needsSetup()-based 403 on re-running it).
+    await auth.checkSetupStatus();
+    if (auth.needsSetup && to.path !== '/setup.html') {
+        return '/setup.html';
+    }
+    if (!auth.needsSetup && to.path === '/setup.html') {
+        return '/login.html';
+    }
 
     if (to.meta.moduleId) {
         await auth.fetchModuleStatus();

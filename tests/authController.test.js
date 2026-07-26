@@ -5,11 +5,19 @@ jest.mock('../server/modules/auth/mailer', () => ({
 jest.mock('../server/modules/auth/disposable-emails', () => ({
     isDisposableEmail: jest.fn(() => false)
 }));
+jest.mock('../server/services/storageService', () => ({
+    deleteWorkspaceData: jest.fn().mockResolvedValue(undefined)
+}));
+jest.mock('../server/utils/workspace', () => ({
+    closeWorkspaceDb: jest.fn()
+}));
 
 const bcrypt = require('bcryptjs');
 const db = require('../server/config/database');
 const { sendVerificationEmail } = require('../server/modules/auth/mailer');
 const { isDisposableEmail } = require('../server/modules/auth/disposable-emails');
+const storageService = require('../server/services/storageService');
+const { closeWorkspaceDb } = require('../server/utils/workspace');
 const controller = require('../server/modules/auth/controller');
 
 function makeReqRes({ params = {}, body = {}, query = {}, user = { id: 1, username: 'bob' } } = {}) {
@@ -29,6 +37,8 @@ beforeEach(() => {
     sendVerificationEmail.mockClear();
     isDisposableEmail.mockReset();
     isDisposableEmail.mockReturnValue(false);
+    storageService.deleteWorkspaceData.mockReset().mockResolvedValue(undefined);
+    closeWorkspaceDb.mockReset();
     process.env = { ...ORIGINAL_ENV };
     delete process.env.SMTP_HOST;
     delete process.env.SMTP_USER;
@@ -253,6 +263,16 @@ describe('admin: updateUser', () => {
 });
 
 describe('admin: deleteUser', () => {
+    // Routes db.query by the statement's shape rather than call order, so
+    // each test only has to describe what the deleted user owns.
+    function mockOwnership({ workspaces = [], teams = [] } = {}) {
+        db.query.mockImplementation((sql) => {
+            if (sql.includes('SELECT id FROM workspaces WHERE userId')) return Promise.resolve([workspaces]);
+            if (sql.includes('SELECT id FROM m2em_teams WHERE owner_id')) return Promise.resolve([teams]);
+            return Promise.resolve([{ affectedRows: 1 }]);
+        });
+    }
+
     test('refuses to let an admin delete their own account', async () => {
         const { req, res } = makeReqRes({ params: { id: '1' }, user: { id: 1 } });
         await controller.deleteUser(req, res);
@@ -260,10 +280,50 @@ describe('admin: deleteUser', () => {
         expect(db.query).not.toHaveBeenCalled();
     });
 
-    test('deletes a different user', async () => {
-        db.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+    test('deletes a user who owns nothing, without touching workspace/team tables', async () => {
+        mockOwnership();
+        const { req, res } = makeReqRes({ params: { id: '2' }, user: { id: 1 } });
+        await controller.deleteUser(req, res);
+
+        expect(res.json).toHaveBeenCalledWith({ success: true });
+        const calledSql = db.query.mock.calls.map(c => c[0]);
+        expect(calledSql).not.toContain('DELETE FROM workspaces WHERE userId = ?');
+        expect(calledSql).not.toContain('DELETE FROM m2em_teams WHERE owner_id = ?');
+        expect(calledSql).toContain('DELETE FROM m2em_team_members WHERE user_id = ?');
+        expect(calledSql).toContain('DELETE FROM item_proto WHERE userId = ? AND workspace_id IS NULL');
+        expect(calledSql).toContain('DELETE FROM mob_proto WHERE userId = ? AND workspace_id IS NULL');
+        expect(calledSql).toContain('DELETE FROM m2em_users WHERE id = ?');
+    });
+
+    test('cleans up an owned workspace: connections, audit log, cached DB handle, files, and the row itself', async () => {
+        mockOwnership({ workspaces: [{ id: 10 }] });
+        const { req, res } = makeReqRes({ params: { id: '2' }, user: { id: 1 } });
+        await controller.deleteUser(req, res);
+
+        expect(res.json).toHaveBeenCalledWith({ success: true });
+        expect(db.query).toHaveBeenCalledWith('DELETE FROM workspace_connections WHERE workspace_id = ?', [10]);
+        expect(db.query).toHaveBeenCalledWith('DELETE FROM connection_audit_log WHERE workspace_id = ?', [10]);
+        expect(closeWorkspaceDb).toHaveBeenCalledWith('2', 10);
+        expect(storageService.deleteWorkspaceData).toHaveBeenCalledWith('2', 10);
+        expect(db.query).toHaveBeenCalledWith('DELETE FROM workspaces WHERE userId = ?', ['2']);
+    });
+
+    test('still succeeds when a workspace file cleanup fails (best effort)', async () => {
+        mockOwnership({ workspaces: [{ id: 10 }] });
+        storageService.deleteWorkspaceData.mockRejectedValueOnce(new Error('EBUSY'));
         const { req, res } = makeReqRes({ params: { id: '2' }, user: { id: 1 } });
         await controller.deleteUser(req, res);
         expect(res.json).toHaveBeenCalledWith({ success: true });
+    });
+
+    test('cleans up an owned team: memberships removed and its workspaces unlinked before the team is deleted', async () => {
+        mockOwnership({ teams: [{ id: 20 }] });
+        const { req, res } = makeReqRes({ params: { id: '2' }, user: { id: 1 } });
+        await controller.deleteUser(req, res);
+
+        expect(res.json).toHaveBeenCalledWith({ success: true });
+        expect(db.query).toHaveBeenCalledWith('DELETE FROM m2em_team_members WHERE team_id = ?', [20]);
+        expect(db.query).toHaveBeenCalledWith('UPDATE workspaces SET team_id = NULL WHERE team_id = ?', [20]);
+        expect(db.query).toHaveBeenCalledWith('DELETE FROM m2em_teams WHERE owner_id = ?', ['2']);
     });
 });

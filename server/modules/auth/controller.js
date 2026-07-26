@@ -6,6 +6,9 @@ const { JWT_SECRET } = require('./middleware');
 const { sendVerificationEmail } = require('./mailer');
 const { isDisposableEmail } = require('./disposable-emails');
 const { stripHTML } = require('../../utils/sanitizer');
+const storageService = require('../../services/storageService');
+const { closeWorkspaceDb } = require('../../utils/workspace');
+const runtimeConfig = require('../../config/runtimeConfig');
 
 const SALT_ROUNDS = 10;
 const TOKEN_EXPIRY = '24h';
@@ -35,7 +38,14 @@ async function initAuth() {
     }
 }
 
-initAuth();
+// Skipped while the in-app setup wizard (server/modules/setup/) still owns
+// admin-account creation - only relevant for the "power user" path where
+// JWT_SECRET/CREDENTIALS_ENCRYPTION_KEY are set directly via real env vars
+// (e.g. Coolify's own env var UI) and the wizard is bypassed entirely, in
+// which case this behaves exactly as before this module existed.
+if (!runtimeConfig.needsSetup()) {
+    initAuth();
+}
 
 // ── Login ────────────────────────────────────────────
 const login = async (req, res) => {
@@ -405,6 +415,45 @@ const deleteUser = async (req, res) => {
         return res.status(400).json({ success: false, error: 'Kann eigenen Account nicht löschen' });
     }
     try {
+        // None of the tables below have an ON DELETE CASCADE foreign key
+        // back to m2em_users (same gap as the workspace-deletion bug), so
+        // without this cleanup a deleted user's workspaces, SSH/DB
+        // credentials, and teams become permanently orphaned - unreachable
+        // through the UI (the owner is gone) but still sitting in the DB
+        // and, for workspace files, still on disk.
+        const [ownedWorkspaces] = await db.query('SELECT id FROM workspaces WHERE userId = ?', [id]);
+        for (const ws of ownedWorkspaces) {
+            await db.query('DELETE FROM workspace_connections WHERE workspace_id = ?', [ws.id]);
+            await db.query('DELETE FROM connection_audit_log WHERE workspace_id = ?', [ws.id]);
+            closeWorkspaceDb(id, ws.id);
+            try {
+                await storageService.deleteWorkspaceData(id, ws.id);
+            } catch (storageErr) {
+                console.error(`[Auth] Storage cleanup failed for deleted user ${id}, workspace ${ws.id}:`, storageErr.message);
+            }
+        }
+        if (ownedWorkspaces.length > 0) {
+            await db.query('DELETE FROM workspaces WHERE userId = ?', [id]);
+        }
+
+        // Teams this user owns: drop memberships and unlink any workspace
+        // (including other users' team-shared ones) before removing the team.
+        const [ownedTeams] = await db.query('SELECT id FROM m2em_teams WHERE owner_id = ?', [id]);
+        for (const team of ownedTeams) {
+            await db.query('DELETE FROM m2em_team_members WHERE team_id = ?', [team.id]);
+            await db.query('UPDATE workspaces SET team_id = NULL WHERE team_id = ?', [team.id]);
+        }
+        if (ownedTeams.length > 0) {
+            await db.query('DELETE FROM m2em_teams WHERE owner_id = ?', [id]);
+        }
+
+        // Membership in teams owned by someone else.
+        await db.query('DELETE FROM m2em_team_members WHERE user_id = ?', [id]);
+
+        // Personal (no active workspace) item/mob proto entries.
+        await db.query('DELETE FROM item_proto WHERE userId = ? AND workspace_id IS NULL', [id]);
+        await db.query('DELETE FROM mob_proto WHERE userId = ? AND workspace_id IS NULL', [id]);
+
         await db.query('DELETE FROM m2em_users WHERE id = ?', [id]);
         res.json({ success: true });
     } catch (err) {

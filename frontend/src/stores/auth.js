@@ -25,7 +25,9 @@ export const useAuthStore = defineStore('auth', {
         token: localStorage.getItem(TOKEN_KEY) || null,
         user: readUser(),
         modules: [],
-        modulesLoaded: false
+        modulesLoaded: false,
+        needsSetup: false,
+        setupChecked: false
     }),
     getters: {
         isLoggedIn: (state) => !!state.token,
@@ -123,6 +125,29 @@ export const useAuthStore = defineStore('auth', {
                 console.error('[auth store] Failed to load module status:', e);
             }
             return this.modules;
+        },
+
+        /**
+         * Whether the in-app setup wizard (server/modules/setup/) still
+         * needs to run - checked by the router guard on every navigation
+         * until it resolves false once, then cached like fetchModuleStatus.
+         */
+        async checkSetupStatus(force = false) {
+            if (this.setupChecked && !force) return this.needsSetup;
+            try {
+                const res = await fetch('/api/setup/status');
+                const data = await res.json();
+                this.needsSetup = !!data.needsSetup;
+                this.setupChecked = true;
+            } catch (e) {
+                console.error('[auth store] Failed to load setup status:', e);
+                // Fail open (assume no setup needed) rather than potentially
+                // trapping every visitor on the wizard if the check itself
+                // errors for an unrelated reason (e.g. a transient network blip).
+                this.needsSetup = false;
+                this.setupChecked = true;
+            }
+            return this.needsSetup;
         }
     }
 });

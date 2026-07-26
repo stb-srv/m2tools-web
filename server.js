@@ -12,7 +12,11 @@ const rateLimit = require('express-rate-limit');
 
 require('dotenv').config();
 
-
+// Loads any secrets/config the in-app setup wizard has previously
+// persisted (server/modules/setup/) onto process.env - must happen before
+// anything else requires a module that reads those vars (auth middleware,
+// secretsCrypto, mailer, ...). Real env vars always take priority.
+require('./server/config/runtimeConfig');
 
 
 
@@ -220,6 +224,10 @@ fs.readdirSync(modulesBaseDir).forEach(folder => {
                 // used to spam a victim's inbox or run up SMTP costs), so it
                 // gets the stricter limiter too instead of just apiLimiter.
                 app.use(prefix + '/resend-verification', authLimiter);
+            }
+            if (folder === 'setup') {
+                // Creates the first account, same abuse profile as register.
+                app.use(prefix + '/init', authLimiter);
             }
             if (prefix) {
                 app.use(prefix, router);

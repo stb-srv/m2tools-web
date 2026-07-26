@@ -15,7 +15,7 @@ const auth = useAuthStore();
 const theme = useThemeStore();
 const ui = useUiStore();
 
-const isAuthPage = computed(() => route.path.includes('login.html') || route.path.includes('register.html'));
+const isAuthPage = computed(() => route.path.includes('login.html') || route.path.includes('register.html') || route.path.includes('setup.html'));
 
 const avatarInitial = computed(() => {
     const name = auth.user?.displayName || auth.user?.username || '';

@@ -15,6 +15,7 @@ Backend: modulares Express-System (`server/`) · Frontend: Vue 3 + Vite Single-P
 - [Konfiguration (.env)](#konfiguration-env)
 - [Produktion / Deployment](#produktion--deployment)
 - [Docker](#docker)
+- [Coolify](#coolify)
 - [Tests](#tests)
 - [CI](#ci)
 - [Projektstruktur](#projektstruktur)
@@ -83,7 +84,7 @@ node server.js              # Backend auf :3001
 cd frontend && npm run dev  # Vite Dev-Server auf :5173, proxied /api, /assets, /basic, /i18n zu :3001
 ```
 
-Öffne anschließend `http://localhost:5173`. Beim allerersten Start ohne vorhandene Nutzer wird automatisch ein `admin`-Konto angelegt; das Initial-Passwort erscheint einmalig im Server-Log.
+Öffne anschließend `http://localhost:5173`. Ohne gesetztes `JWT_SECRET`/`CREDENTIALS_ENCRYPTION_KEY` führt der erste Aufruf automatisch zum **Setup-Wizard** (`/setup.html`), der Admin-Konto und Sicherheitsschlüssel im Browser einrichtet – siehe [Konfiguration (.env)](#konfiguration-env). Sind beide Werte bereits per `.env`/Umgebungsvariable gesetzt, wird der Wizard übersprungen und stattdessen (wie bisher) automatisch ein `admin`-Konto mit im Server-Log angezeigtem Initial-Passwort angelegt.
 
 ## Konfiguration (.env)
 
@@ -95,19 +96,31 @@ Kopiere `.env.example` nach `.env` und passe die Werte an:
 | `DB_TYPE` | `sqlite` (Standard) oder `mysql`/`mariadb` |
 | `SQLITE_PATH` | Optionaler Pfad zur SQLite-Datei |
 | `DB_HOST`/`DB_USER`/`DB_PASSWORD`/`DB_NAME` | Nur bei `DB_TYPE=mysql` |
-| `CUBE_PATH` | Pfad zur `cube.txt` |
-| `JWT_SECRET` | Session-Secret; ohne Angabe zufällig pro Prozessstart (Sessions überleben dann keinen Neustart) |
-| `CREDENTIALS_ENCRYPTION_KEY` | **Erforderlich für Server-Verbindungen** – verschlüsselt gespeicherte SSH/DB-Zugangsdaten. Ohne bestehende Verbindungen optional, der Server startet aber nicht, wenn verschlüsselte Daten ohne diesen Key vorliegen |
-| `ALLOWED_ORIGINS` | Komma-separierte Liste erlaubter Frontend-Origins in Produktion (sonst CORS offen) |
-| `BASE_URL` | Externe URL für E-Mail-Verifizierungslinks |
-| `SMTP_*` | SMTP-Zugangsdaten für Verifizierungs-Mails; ohne Konfiguration werden neue Konten automatisch verifiziert (Dev-Modus) |
+| `ICONS_PATH` | Optionales externes Icon-Verzeichnis (sonst `public/assets/items/`) |
+| `JWT_SECRET` | Session-Secret. **Optional** – bleibt es zusammen mit `CREDENTIALS_ENCRYPTION_KEY` leer, übernimmt der [Setup-Wizard](#setup-wizard--erstkonfiguration) die Generierung im Browser. Manuell gesetzt: ohne Angabe zufällig pro Prozessstart (Sessions überleben dann keinen Neustart) |
+| `CREDENTIALS_ENCRYPTION_KEY` | Verschlüsselt gespeicherte SSH/DB-Zugangsdaten (Server-Verbindungen). **Optional** – wird wie `JWT_SECRET` normalerweise vom Setup-Wizard generiert und dauerhaft in `data/runtime-config.json` gespeichert. Manuell gesetzt: kein Zufalls-Fallback, verschlüsselte Bestandsdaten ohne diesen Key machen den Serverstart unmöglich |
+| `ALLOWED_ORIGINS` | Komma-separierte Liste erlaubter Frontend-Origins in Produktion (sonst CORS offen); auch per Wizard setzbar |
+| `BASE_URL` | Externe URL für E-Mail-Verifizierungslinks; auch per Wizard setzbar |
+| `SMTP_*` | SMTP-Zugangsdaten für Verifizierungs-Mails; ohne Konfiguration werden neue Konten automatisch verifiziert (Dev-Modus); auch per Wizard setzbar |
 
-Secrets generieren:
+Manuelle Secrets generieren (nur nötig, wenn du den Wizard **nicht** nutzen und Secrets stattdessen selbst verwalten willst – siehe unten):
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"   # JWT_SECRET
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"   # CREDENTIALS_ENCRYPTION_KEY
 ```
+
+### Setup-Wizard (Erstkonfiguration)
+
+Sind `JWT_SECRET` und `CREDENTIALS_ENCRYPTION_KEY` beim ersten Start nicht gesetzt (weder in `.env` noch als Umgebungsvariable), leitet die App jeden Aufruf automatisch auf `/setup.html` um. Dort werden im Browser eingerichtet:
+
+1. **Admin-Konto** (Benutzername, optional E-Mail, Passwort) – ersetzt das bisherige "Zufallspasswort im Server-Log".
+2. **Domain/CORS** (`ALLOWED_ORIGINS`, `BASE_URL`) – vorbefüllt mit der aktuell aufgerufenen Adresse.
+3. **SMTP** (optional, überspringbar).
+
+Beim Abschluss generiert der Server `JWT_SECRET` und `CREDENTIALS_ENCRYPTION_KEY` automatisch und speichert alles dauerhaft in `data/runtime-config.json` (im selben Volume wie die SQLite-DB – übersteht Neustarts/Redeploys). Danach ist der Wizard gesperrt (`/api/setup/init` antwortet mit 403) und `/setup.html` leitet auf `/login.html` um.
+
+**Power-User-Pfad:** Wer Secrets lieber selbst verwaltet, setzt `JWT_SECRET`/`CREDENTIALS_ENCRYPTION_KEY` (und optional `SMTP_*`) einfach direkt als Umgebungsvariable – der Wizard wird dann automatisch übersprungen, und es gilt wieder das klassische Verhalten (Zufalls-Admin-Konto, Passwort im Log).
 
 ## Produktion / Deployment
 
@@ -124,6 +137,22 @@ docker compose up --build
 ```
 
 Der Container baut das Frontend im Multi-Stage-Build und startet Backend + gebautes Frontend auf Port `3001`. `data/` (SQLite-DB) und `public/basic/` (Quests, `cube.txt` etc.) werden als benannte Volumes persistiert. Ein `/health`-Endpoint mit echtem DB-Ping ist für Healthchecks/Monitoring eingerichtet.
+
+## Coolify
+
+M2-Tools lässt sich ohne manuelle `.env`-Pflege über [Coolify](https://coolify.io/) deployen – Secrets richtet der [Setup-Wizard](#setup-wizard--erstkonfiguration) im Browser ein.
+
+1. **Neue Ressource anlegen**: In Coolify eine neue "Application" aus diesem Git-Repo erstellen, Build-Pack **Dockerfile** wählen (nicht "Docker Compose" – das vorhandene `docker-compose.yml` ist für lokale/manuelle Deployments gedacht, Coolifys eigenes Domain-/SSL-Handling passt besser zum reinen Dockerfile-Modus).
+2. **Persistenten Speicher einrichten** (wichtig): Im "Storages"-Tab der Ressource zwei Volumes anlegen und mounten:
+   - `/app/data` (SQLite-DB **und** die vom Setup-Wizard generierten Secrets)
+   - `/app/public/basic` (Quests, `cube.txt` etc.)
+
+   Coolify liest die `VOLUME`-Direktiven aus dem Dockerfile beim Dockerfile-Build-Pack **nicht** automatisch aus – ohne diesen Schritt gehen DB und Secrets beim nächsten Redeploy verloren.
+3. **Port**: `3001` als exponierten Container-Port setzen. Domain/SSL übernimmt Coolifys eigener Proxy automatisch.
+4. **Healthcheck** (optional): In Coolifys Healthcheck-Einstellungen `/health` eintragen (liefert `200` inkl. echtem DB-Ping).
+5. **Deployen**, zugewiesene Domain aufrufen → automatische Weiterleitung zum Setup-Wizard → Admin-Konto anlegen, fertig.
+
+Wer Secrets lieber selbst verwalten will, kann `JWT_SECRET`/`CREDENTIALS_ENCRYPTION_KEY` (und optional `SMTP_*`) direkt als Coolify-Umgebungsvariablen setzen (siehe [Konfiguration (.env)](#konfiguration-env)) – der Wizard wird dann automatisch übersprungen.
 
 ## Tests
 

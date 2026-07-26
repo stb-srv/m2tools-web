@@ -6,13 +6,16 @@ services:
     environment:
       PORT: 3001
       DB_TYPE: sqlite
-      # Required in production - the container refuses to start if saved
-      # Server-Verbindung credentials exist but this is unset. Generate with:
-      #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-      CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:?set CREDENTIALS_ENCRYPTION_KEY in .env}
-      # Optional but recommended - without it, sessions are invalidated on
-      # every container restart. Generate with:
-      #   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+      # Both of these are optional here - if left unset, the in-app setup
+      # wizard (visit the app for the first time) generates and persists
+      # them into the data/ volume automatically. Set them here instead
+      # only if you'd rather manage secrets yourself and skip the wizard;
+      # doing so also disables it (the app boots straight to normal
+      # operation with the usual random-admin-in-logs fallback). Generate
+      # with:
+      #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" # CREDENTIALS_ENCRYPTION_KEY
+      #   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))" # JWT_SECRET
+      CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:-}
       JWT_SECRET: ${JWT_SECRET:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
     volumes:
