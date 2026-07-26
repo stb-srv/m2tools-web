@@ -11,8 +11,8 @@ jobs:
     name: Backend (Jest)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
       - name: Install dependencies
@@ -31,8 +31,8 @@ jobs:
       # real production boot needs.
       CREDENTIALS_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000001'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
       - name: Install dependencies
@@ -52,7 +52,7 @@ jobs:
         run: npm run test:e2e
       - name: Upload Playwright report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: frontend/playwright-report/
