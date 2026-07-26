@@ -6,26 +6,12 @@ FROM node:26-bookworm-slim AS build
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 make g++ \
-    && rm -rf /var/lib/apt/lists/* \
-    && npm install -g node-gyp
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
-
-# better-sqlite3's bundled prebuilt binary (prebuilds/linux-x64.node) has
-# been observed to segfault (SIGSEGV) immediately on `new Database(...)` on
-# some hosts, even for a plain in-memory DB - a binary-level ABI/glibc
-# mismatch rather than anything this app's code can catch or work around.
-# better-sqlite3 always prefers that prebuild over a locally-built one
-# (see lib/binding.js) if the file is present, so it has to be removed
-# after rebuilding from source against this exact image's Node/glibc,
-# otherwise the broken prebuild would still win at require-time.
-RUN cd node_modules/better-sqlite3 \
-    && node-gyp clean \
-    && node-gyp rebuild --release \
-    && rm -f prebuilds/*.node
 
 COPY frontend/package.json frontend/package-lock.json ./frontend/
 RUN npm ci --prefix frontend
