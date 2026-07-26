@@ -427,6 +427,28 @@ body::before {
     color: var(--text-primary);
 }
 
+/* Compact select variant for table cells (Admin panel user/module rows,
+   WorkspaceSettings). Own rule (not just .m2-select with a modifier)
+   because it needs different padding/border-radius for that context - but
+   still needs its own "option" rule, since the popup list ignores the
+   parent's background/color otherwise and falls back to native OS
+   rendering (white, unreadable in dark mode). */
+.m2-select-admin {
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    padding: 5px 10px;
+    border-radius: 4px;
+    outline: none;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.m2-select-admin option {
+    background-color: var(--bg-card);
+    color: var(--text-primary);
+}
+
 .m2-textarea {
     resize: vertical;
     min-height: 100px;

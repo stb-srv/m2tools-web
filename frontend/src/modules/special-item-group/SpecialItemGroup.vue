@@ -284,7 +284,7 @@ onMounted(async () => {
                         </div>
                         <div class="m2-field-group" style="margin: 0;">
                             <label class="m2-label">Typ</label>
-                            <select v-model="selectedGroup.type" class="m2-input">
+                            <select v-model="selectedGroup.type" class="m2-select">
                                 <option value="NORMAL">NORMAL</option>
                                 <option value="PCT">PCT (Wahrscheinlichkeit)</option>
                                 <option value="ATTR">ATTR</option>

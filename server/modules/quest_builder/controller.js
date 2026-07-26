@@ -4,6 +4,7 @@ const path = require('path');
 const db = require('../../config/database');
 const { getActiveWorkspace, getWorkspaceScope, getWorkspaceDb } = require('../../utils/workspace');
 const ApiError = require('../../utils/apiError');
+const { decodeLocaleBytes } = require('../../services/protoImportService');
 
 const PROJECT_ROOT = process.cwd();
 const QUEST_ASSETS_DIR = path.join(PROJECT_ROOT, 'public', 'assets', 'workspaces');
@@ -24,8 +25,8 @@ const getQuestsDir = async (userId) => {
 const decodeName = (val) => {
     if (!val) return 'Unbekannt';
     if (typeof val === 'string') return val;
-    if (Buffer.isBuffer(val)) return val.toString('latin1');
-    if (val.data) return Buffer.from(val.data).toString('latin1');
+    if (Buffer.isBuffer(val)) return decodeLocaleBytes(val);
+    if (val.data) return decodeLocaleBytes(Buffer.from(val.data));
     return String(val);
 };
 

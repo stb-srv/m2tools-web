@@ -51,6 +51,28 @@ describe('parseUploadedProtoFile', () => {
     });
 });
 
+describe('decodeLocaleBytes', () => {
+    test('decodes valid UTF-8 bytes as UTF-8, preserving umlauts', () => {
+        const buf = Buffer.from('Wüstenläufer', 'utf-8');
+        expect(protoImportService.decodeLocaleBytes(buf)).toBe('Wüstenläufer');
+    });
+
+    test('falls back to latin1 for bytes that are not valid UTF-8', () => {
+        // "ü" in latin1/cp1252 is the single byte 0xFC, which is not a
+        // legal UTF-8 continuation on its own - decoding it as UTF-8 would
+        // silently produce a U+FFFD replacement char (mojibake) instead of
+        // the real character, so this must fall back to latin1.
+        const buf = Buffer.from('Wustenlaufer', 'ascii');
+        buf[7] = 0xFC; // patch the 'a' in "laufer" to a raw latin1 'ü' byte
+        expect(protoImportService.decodeLocaleBytes(buf)).toBe('Wustenlüufer');
+    });
+
+    test('round-trips a name containing all three German umlauts', () => {
+        const buf = Buffer.from('Äpfel, Öl und Über-Mühle', 'utf-8');
+        expect(protoImportService.decodeLocaleBytes(buf)).toBe('Äpfel, Öl und Über-Mühle');
+    });
+});
+
 describe('writeItems / writeMobs', () => {
     test('writeItems inserts rows into item_proto and returns the count', () => {
         const db = createProtoDb();

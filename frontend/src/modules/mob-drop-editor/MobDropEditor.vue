@@ -333,7 +333,7 @@ onMounted(async () => {
                 <div class="toolbar-section">
                     <label class="m2-label">Batch-Aktionen (Alle sichtbaren)</label>
                     <div class="toolbar-row">
-                        <select v-model="batchActionType" class="m2-input" style="width: 140px">
+                        <select v-model="batchActionType" class="m2-select" style="width: 140px">
                             <option value="multiply">Multiplizieren (x)</option>
                             <option value="add">Addieren (+)</option>
                             <option value="set">Festsetzen (=)</option>

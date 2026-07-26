@@ -22,8 +22,8 @@ const users = ref([]);
 const teams = ref([]);
 
 const settings = ref({
-    storageStd: 20,
-    storagePre: 50,
+    storageStd: 150,
+    storagePre: 300,
     wsMax: 1,
     teamsMax: 3,
     teamSize: 5
@@ -46,8 +46,8 @@ async function loadData() {
 
         const setData = await setRes.json();
         settings.value = {
-            storageStd: Math.round(parseInt(setData.storage_limit_standard || 20971520) / 1024 / 1024),
-            storagePre: Math.round(parseInt(setData.storage_limit_premium || 52428800) / 1024 / 1024),
+            storageStd: Math.round(parseInt(setData.storage_limit_standard || 157286400) / 1024 / 1024),
+            storagePre: Math.round(parseInt(setData.storage_limit_premium || 314572800) / 1024 / 1024),
             wsMax: setData.max_workspaces_per_user || 1,
             teamsMax: setData.max_teams_per_user || 3,
             teamSize: setData.max_team_members || 5
@@ -223,14 +223,14 @@ onMounted(loadData);
             <h2>⚙️ System-Einstellungen</h2>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
                 <div class="m2-field-group">
-                    <label class="m2-label">Standard Speicherlimit (MB)</label>
-                    <input v-model.number="settings.storageStd" type="number" class="m2-input" placeholder="z.B. 20">
-                    <span class="m2-hint">Limit für reguläre Benutzer</span>
+                    <label class="m2-label">Standard Speicherlimit pro Workspace (MB)</label>
+                    <input v-model.number="settings.storageStd" type="number" class="m2-input" placeholder="z.B. 150">
+                    <span class="m2-hint">Limit je Workspace für reguläre Benutzer (nicht pro Account) - greift bei 10% Überschreitung</span>
                 </div>
                 <div class="m2-field-group">
-                    <label class="m2-label">Premium Speicherlimit (MB)</label>
-                    <input v-model.number="settings.storagePre" type="number" class="m2-input" placeholder="z.B. 50">
-                    <span class="m2-hint">Limit für Premium-Accounts</span>
+                    <label class="m2-label">Premium Speicherlimit pro Workspace (MB)</label>
+                    <input v-model.number="settings.storagePre" type="number" class="m2-input" placeholder="z.B. 300">
+                    <span class="m2-hint">Limit je Workspace für Premium-Accounts - greift bei 10% Überschreitung</span>
                 </div>
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 20px;">
@@ -278,6 +278,4 @@ onMounted(loadData);
 .badge-premium { background: var(--gold-primary); color: #000; }
 .badge-admin { background: #E91E63; color: #fff; }
 .badge-user { background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-color); }
-
-.m2-select-admin { background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-color); padding: 5px 10px; border-radius: 4px; outline: none; }
 </style>

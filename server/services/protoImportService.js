@@ -118,6 +118,23 @@ function parseUploadedProtoFile(buffer, type) {
 }
 
 /**
+ * Decodes a single locale-name BLOB value (e.g. mob_proto/item_proto
+ * locale_name columns from an uploaded proto.db - real client proto.db
+ * files store that column as raw bytes, not TEXT). Prefers UTF-8, same as
+ * parseUploadedProtoFile() above, falling back to latin1 for files that
+ * predate UTF-8 adoption (common with older German/EU server tooling).
+ *
+ * Decoding non-UTF-8 bytes as UTF-8 doesn't throw - it silently produces
+ * U+FFFD replacement characters - so that's the fallback trigger. Without
+ * this, umlauts (ä/ö/ü) in a UTF-8-stored name show up as garbled
+ * multi-character mojibake ("Ã¤" etc.) whenever forced through latin1.
+ */
+function decodeLocaleBytes(buf) {
+    const utf8 = buf.toString('utf-8');
+    return utf8.includes('�') ? buf.toString('latin1') : utf8;
+}
+
+/**
  * Inserts parsed items into a workspace's proto.db (INSERT OR REPLACE).
  * Returns the number of rows written.
  */
@@ -170,4 +187,4 @@ function writeMobs(wsDb, mobs) {
     return imported;
 }
 
-module.exports = { parseProtoText, parseUploadedProtoFile, writeItems, writeMobs };
+module.exports = { parseProtoText, parseUploadedProtoFile, writeItems, writeMobs, decodeLocaleBytes };

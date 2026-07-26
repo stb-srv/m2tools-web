@@ -12,13 +12,14 @@ const DEFAULT_ICON = path.join(PROJECT_ROOT, 'public', 'assets', 'images', 'defa
 
 // --- Helpers ---
 const { stripHTML } = require('../../utils/sanitizer');
+const { decodeLocaleBytes } = require('../../services/protoImportService');
 
 const decodeName = (val) => {
     if (!val) return 'Unbekanntes Item';
     let raw = '';
     if (typeof val === 'string') raw = val;
-    else if (Buffer.isBuffer(val)) raw = val.toString('latin1');
-    else if (val.data) raw = Buffer.from(val.data).toString('latin1');
+    else if (Buffer.isBuffer(val)) raw = decodeLocaleBytes(val);
+    else if (val.data) raw = decodeLocaleBytes(Buffer.from(val.data));
     else raw = String(val);
 
     return stripHTML(raw); // Security: Strip tags to prevent XSS
