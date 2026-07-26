@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { luaEscape, buildWhenLine, buildActionString, buildConditionString, generateLuaCode } from './questLua';
+import { luaEscape, buildWhenLine, buildActionString, buildConditionString, generateLuaCode, parseQuestCode } from './questLua';
 
 describe('luaEscape', () => {
     it('escapes backslashes and double quotes', () => {
@@ -18,11 +18,11 @@ describe('buildWhenLine', () => {
     });
 
     it('builds a kill trigger keyed off mobVnum', () => {
-        expect(buildWhenLine({ type: 'kill', mobVnum: 202 })).toBe('when kill with npc.get_race() == 202');
+        expect(buildWhenLine({ type: 'kill', mobVnum: 202 })).toBe('when 202.kill');
     });
 
-    it('escapes the chat text of a chat trigger', () => {
-        expect(buildWhenLine({ type: 'chat', chatText: 'give "sword"' })).toBe('when letter with chat == "give \\"sword\\""');
+    it('builds an NPC-scoped chat trigger and escapes its text', () => {
+        expect(buildWhenLine({ type: 'chat', npcVnum: 9999, chatText: 'give "sword"' })).toBe('when 9999.chat."give \\"sword\\""');
     });
 
     it('falls back to a bare trigger type for unknown types', () => {
@@ -148,5 +148,171 @@ describe('generateLuaCode', () => {
         const questData = { name: 'q', states: [{ name: 'start', triggers: [{ type: '' }] }] };
         const code = generateLuaCode(questData);
         expect(code).toBe('quest q begin\n\tstate start begin\n\tend\nend\n');
+    });
+});
+
+describe('parseQuestCode', () => {
+    it('recovers the quest name and a bare state/trigger with no body', () => {
+        const code = 'quest my_quest begin\n\tstate start begin\n\tend\nend\n';
+        const data = parseQuestCode(code);
+        expect(data.name).toBe('my_quest');
+        expect(data.states).toHaveLength(1);
+        expect(data.states[0].name).toBe('start');
+    });
+
+    it('round-trips a click trigger with dialog and a give_item action', () => {
+        const original = {
+            name: 'test_quest',
+            states: [{
+                name: 'start',
+                triggers: [{
+                    type: 'click', npcVnum: 101,
+                    conditions: [],
+                    dialog: { title: 'Titel', lines: ['Hello there'] },
+                    actions: [{ type: 'give_item', params: { vnum: 50100, amount: 3 } }],
+                    selectOptions: []
+                }]
+            }]
+        };
+        const parsed = parseQuestCode(generateLuaCode(original));
+        const t = parsed.states[0].triggers[0];
+        expect(t.type).toBe('click');
+        expect(t.npcVnum).toBe(101);
+        expect(t.dialog.title).toBe('Titel');
+        expect(t.dialog.lines).toEqual(['Hello there']);
+        expect(t.actions).toEqual([{ id: expect.any(Number), type: 'give_item', params: { vnum: 50100, amount: 3 } }]);
+    });
+
+    it('does not stop at the first nested "end" when a trigger has conditions (regression)', () => {
+        const original = {
+            name: 'q',
+            states: [{
+                name: 'start',
+                triggers: [{
+                    type: 'login',
+                    conditions: [{ type: 'level_check', params: { operator: '>=', value: 10 } }],
+                    dialog: null,
+                    actions: [{ type: 'give_gold', params: { amount: 100 } }],
+                    selectOptions: []
+                }, {
+                    type: 'levelup',
+                    conditions: [],
+                    dialog: { title: '', lines: ['second trigger survived'] },
+                    actions: [],
+                    selectOptions: []
+                }]
+            }]
+        };
+        const parsed = parseQuestCode(generateLuaCode(original));
+        const triggers = parsed.states[0].triggers;
+        expect(triggers).toHaveLength(2);
+        expect(triggers[0].conditions).toEqual([{ id: expect.any(Number), type: 'level_check', params: { operator: '>=', value: 10 } }]);
+        expect(triggers[0].actions).toEqual([{ id: expect.any(Number), type: 'give_gold', params: { amount: 100 } }]);
+        expect(triggers[1].type).toBe('levelup');
+        expect(triggers[1].dialog.lines).toEqual(['second trigger survived']);
+    });
+
+    it('round-trips select() branching with per-option actions', () => {
+        const original = {
+            name: 'q',
+            states: [{
+                name: 'start',
+                triggers: [{
+                    type: 'button',
+                    conditions: [],
+                    dialog: null,
+                    actions: [],
+                    selectOptions: [
+                        { text: 'Yes', actions: [{ type: 'give_gold', params: { amount: 10 } }] },
+                        { text: 'No', actions: [{ type: 'notice', params: { message: 'Schade!' } }] }
+                    ]
+                }]
+            }]
+        };
+        const parsed = parseQuestCode(generateLuaCode(original));
+        const opts = parsed.states[0].triggers[0].selectOptions;
+        expect(opts).toHaveLength(2);
+        expect(opts[0].text).toBe('Yes');
+        expect(opts[0].actions).toEqual([{ id: expect.any(Number), type: 'give_gold', params: { amount: 10 } }]);
+        expect(opts[1].text).toBe('No');
+        expect(opts[1].actions).toEqual([{ id: expect.any(Number), type: 'notice', params: { message: 'Schade!' } }]);
+    });
+
+    it('round-trips a multi-line custom_lua action containing its own if/end block', () => {
+        const rawCode = 'if pc.getqf("hunde_kills") >= 10 then\n    notice("Fertig!")\n    set_state("belohnung")\nend';
+        const original = {
+            name: 'q',
+            states: [{
+                name: 'jagd',
+                triggers: [{
+                    type: 'kill', mobVnum: 101,
+                    conditions: [],
+                    dialog: null,
+                    actions: [
+                        { type: 'inc_flag', params: { flagName: 'hunde_kills' } },
+                        { type: 'custom_lua', params: { code: rawCode } }
+                    ],
+                    selectOptions: []
+                }]
+            }]
+        };
+        const generated = generateLuaCode(original);
+        const parsed = parseQuestCode(generated);
+        const actions = parsed.states[0].triggers[0].actions;
+        expect(actions[0]).toEqual({ id: expect.any(Number), type: 'inc_flag', params: { flagName: 'hunde_kills' } });
+        expect(actions[1].type).toBe('custom_lua');
+        expect(actions[1].params.code).toBe(rawCode);
+
+        // A second generate/parse pass should be stable (idempotent).
+        expect(generateLuaCode(parsed)).toBe(generated);
+    });
+
+    it('recovers multiple states and multiple triggers per state', () => {
+        const code = [
+            'quest multi begin',
+            '\tstate start begin',
+            '\t\twhen 20011.click begin',
+            '\t\t\tsay("Hallo")',
+            '\t\tend',
+            '\t\twhen 101.kill begin',
+            '\t\t\tnotice("gejagt")',
+            '\t\tend',
+            '\tend',
+            '\tstate belohnung begin',
+            '\t\twhen login begin',
+            '\t\tend',
+            '\tend',
+            'end',
+            ''
+        ].join('\n');
+        const data = parseQuestCode(code);
+        expect(data.states.map(s => s.name)).toEqual(['start', 'belohnung']);
+        expect(data.states[0].triggers.map(t => t.type)).toEqual(['click', 'kill']);
+        expect(data.states[0].triggers[1].mobVnum).toBe(101);
+        expect(data.states[1].triggers[0].type).toBe('login');
+    });
+
+    it('parses an NPC-scoped chat trigger', () => {
+        const code = 'quest q begin\n\tstate start begin\n\t\twhen 9999.chat."hilfe" begin\n\t\tend\n\tend\nend\n';
+        const data = parseQuestCode(code);
+        const t = data.states[0].triggers[0];
+        expect(t.type).toBe('chat');
+        expect(t.npcVnum).toBe(9999);
+        expect(t.chatText).toBe('hilfe');
+    });
+
+    it('round-trips a letter trigger (no target)', () => {
+        const original = {
+            name: 'q',
+            states: [{
+                name: 'start',
+                triggers: [{ type: 'letter', conditions: [], dialog: null, actions: [{ type: 'send_letter', params: { title: 'Hallo' } }], selectOptions: [] }]
+            }]
+        };
+        const generated = generateLuaCode(original);
+        expect(generated).toContain('when letter begin');
+        const parsed = parseQuestCode(generated);
+        expect(parsed.states[0].triggers[0].type).toBe('letter');
+        expect(parsed.states[0].triggers[0].actions).toEqual([{ id: expect.any(Number), type: 'send_letter', params: { title: 'Hallo' } }]);
     });
 });

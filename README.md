@@ -35,7 +35,7 @@ Module werden zur Laufzeit automatisch geladen (`server/modules/<id>/module.json
 | 🖼️ **TGA Converter** | Konvertiert PNG/JPG in das Metin2-TGA-Format | public |
 | 📖 **Benutzerhandbuch** | Interaktiver Guide für Workspaces, Teams und Editoren | public |
 | 📥 **Proto Importer** | Importiert eigene `item_proto`/`mob_proto` in die Datenbank | user |
-| 📜 **Quest Builder** | Erstellt Metin2-Quests Schritt für Schritt und generiert Lua-Code | user |
+| 📜 **Quest Builder** | Erstellt Metin2-Quests Schritt für Schritt und generiert Lua-Code ([Syntax-Referenz](./QUEST_SYNTAX.md)) | user |
 | 📁 **Workspaces** | Verwaltet mehrere Server-Profile/Bearbeitungsumgebungen | user |
 | 👥 **Teams** | Gemeinsames Arbeiten an Projekten in Teams | user |
 | 🔌 **Server-Verbindungen** | SSH/SFTP- und Live-DB-Verbindung zum eigenen Metin2-Server (inkl. verschlüsselter Zugangsdaten, Audit-Log, Command-Allowlist) | premium |

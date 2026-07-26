@@ -3,7 +3,7 @@ import { ref, reactive, computed, watch, onMounted } from 'vue';
 import { useItemService } from '@/composables/useItemService';
 import { useAuthStore } from '@/stores/auth';
 import { useUiStore } from '@/stores/ui';
-import { generateLuaCode } from './questLua';
+import { generateLuaCode, parseQuestCode, createDefaultTrigger, nextId } from './questLua';
 import { useServerConnection } from '@/composables/useServerConnection';
 
 const itemService = useItemService();
@@ -44,10 +44,11 @@ const TRIGGER_TYPES = [
     { type: 'login', icon: '🔑', name: 'Login', desc: 'Spieler loggt sich ein' },
     { type: 'levelup', icon: '⬆️', name: 'Level-Up', desc: 'Spieler steigt ein Level auf' },
     { type: 'use', icon: '🎒', name: 'Item benutzen', desc: 'Spieler benutzt ein bestimmtes Item' },
-    { type: 'button', icon: '📩', name: 'Quest-Button', desc: 'Spieler klickt den Quest-Button' },
+    { type: 'button', icon: '🔘', name: 'Quest-Button', desc: 'Spieler klickt den Quest-Button' },
     { type: 'timer', icon: '⏱️', name: 'Timer', desc: 'Ein Timer läuft ab' },
-    { type: 'chat', icon: '💬', name: 'Chat-Befehl', desc: 'Spieler gibt einen Befehl ein' },
-    { type: 'enter', icon: '🚪', name: 'Bereich betreten', desc: 'Spieler betritt eine Zone' }
+    { type: 'chat', icon: '💬', name: 'Chat-Befehl', desc: 'Spieler tippt bei einem NPC einen Befehl in den Chat' },
+    { type: 'enter', icon: '🚪', name: 'Spielwelt betreten', desc: 'Spieler betritt die Spielwelt (nach Login)' },
+    { type: 'letter', icon: '📩', name: 'Brief erhalten', desc: 'Wird meist als Einstiegspunkt eines States verwendet, um den nächsten Brief zu senden' }
 ];
 
 const ACTION_TYPES = [
@@ -101,23 +102,6 @@ const RACES = [
     { value: 3, label: 'Schamane' }
 ];
 
-let idSeq = 0;
-const nextId = () => idSeq++;
-
-function createDefaultTrigger() {
-    return {
-        type: 'click',
-        npcVnum: 0, npcName: '',
-        mobVnum: 0, mobName: '',
-        itemVnum: 0, itemName: '',
-        chatText: '', timerName: '',
-        dialog: { title: '', lines: [''] },
-        selectOptions: [],
-        actions: [],
-        conditions: []
-    };
-}
-
 const questData = reactive({
     name: 'my_quest',
     states: [{ name: 'start', triggers: [createDefaultTrigger()] }]
@@ -126,9 +110,16 @@ const questData = reactive({
 const questNameInput = ref('my_quest');
 const currentStep = ref(0);
 const activeStateIndex = ref(0);
+const activeTriggerIndex = ref(0);
 
 const currentState = computed(() => questData.states[activeStateIndex.value]);
-const currentTrigger = computed(() => currentState.value.triggers[0]);
+// Clamped so a stale index (after removing a trigger, or right after
+// switching state) never points past the end of the new triggers array.
+const currentTrigger = computed(() => {
+    const triggers = currentState.value.triggers;
+    const idx = Math.min(activeTriggerIndex.value, triggers.length - 1);
+    return triggers[idx];
+});
 
 const importFileInput = ref(null);
 
@@ -143,7 +134,8 @@ const triggerItemResults = ref([]);
 async function searchApi(endpoint, query) {
     if (!query || query.length < 1) return [];
     try {
-        const res = await fetch(`${endpoint}?q=${encodeURIComponent(query)}`);
+        const res = await auth.authFetch(`${endpoint}?q=${encodeURIComponent(query)}`);
+        if (!res.ok) return [];
         return await res.json();
     } catch { return []; }
 }
@@ -158,7 +150,11 @@ function syncTriggerQueryDisplays() {
     triggerItemResults.value = [];
 }
 
-watch(activeStateIndex, syncTriggerQueryDisplays);
+watch(activeStateIndex, () => {
+    activeTriggerIndex.value = 0;
+    syncTriggerQueryDisplays();
+});
+watch(activeTriggerIndex, syncTriggerQueryDisplays);
 
 async function onTriggerNpcSearch() {
     triggerNpcResults.value = await searchApi('/api/cube/npcs/search', triggerNpcQuery.value);
@@ -225,6 +221,30 @@ function removeState(idx) {
     if (idx === 0) return;
     questData.states.splice(idx, 1);
     if (activeStateIndex.value >= questData.states.length) activeStateIndex.value = questData.states.length - 1;
+}
+
+/* ── Step 1: Triggers ────────────────────────────────────
+ * A state can react to several independent triggers at once (e.g. both a
+ * .click and a kill trigger in the same state) - generateLuaCode() already
+ * emits every entry in state.triggers, this just exposes adding/switching/
+ * removing them in the wizard instead of only ever editing triggers[0]. */
+function addTrigger() {
+    currentState.value.triggers.push(createDefaultTrigger());
+    activeTriggerIndex.value = currentState.value.triggers.length - 1;
+}
+function selectTrigger(idx) {
+    activeTriggerIndex.value = idx;
+}
+function removeTrigger(idx) {
+    if (currentState.value.triggers.length <= 1) return;
+    currentState.value.triggers.splice(idx, 1);
+    if (activeTriggerIndex.value >= currentState.value.triggers.length) {
+        activeTriggerIndex.value = currentState.value.triggers.length - 1;
+    }
+}
+function triggerSummary(t) {
+    const tt = TRIGGER_TYPES.find(x => x.type === t.type);
+    return tt ? `${tt.icon} ${tt.name}` : t.type;
 }
 
 /* ── Step 4/5: Actions ───────────────────────────────── */
@@ -350,50 +370,17 @@ async function exportQuest(ext = '.quest') {
     ui.toast(`Quest "${fullName}" exportiert!`, 'success');
 }
 
-function parseQuestFile(text) {
-    const data = { name: 'imported_quest', states: [] };
-    const qm = text.match(/quest\s+(\w+)\s+begin/);
-    if (qm) data.name = qm[1];
-
-    const stateRegex = /state\s+(\w+)\s+begin([\s\S]*?)(?=state\s+\w+\s+begin|end\s*$)/g;
-    let sm;
-    while ((sm = stateRegex.exec(text)) !== null) {
-        const state = { name: sm[1], triggers: [] };
-        const whenRegex = /when\s+(.*?)\s+begin([\s\S]*?)end/g;
-        let wm;
-        while ((wm = whenRegex.exec(sm[2])) !== null) {
-            const t = createDefaultTrigger();
-            const wl = wm[1];
-            if (wl.includes('.click')) { t.type = 'click'; const m = wl.match(/(\d+)\.click/); if (m) t.npcVnum = parseInt(m[1]); }
-            else if (wl.includes('kill')) { t.type = 'kill'; const m = wl.match(/npc\.get_race\(\)\s*==\s*(\d+)/); if (m) t.mobVnum = parseInt(m[1]); }
-            else if (wl.includes('login')) t.type = 'login';
-            else if (wl.includes('levelup')) t.type = 'levelup';
-            else if (wl.includes('.use')) { t.type = 'use'; const m = wl.match(/(\d+)\.use/); if (m) t.itemVnum = parseInt(m[1]); }
-            else if (wl.includes('.timer')) { t.type = 'timer'; const m = wl.match(/(\w+)\.timer/); if (m) t.timerName = m[1]; }
-            else if (wl.includes('button')) t.type = 'button';
-
-            const tm = wm[2].match(/say_title\("([^"]*)"\)/); if (tm) t.dialog.title = tm[1];
-            const sms = [...wm[2].matchAll(/say\("([^"]*)"\)/g)]; if (sms.length) t.dialog.lines = sms.map(m => m[1]);
-
-            state.triggers.push(t);
-        }
-        if (!state.triggers.length) state.triggers.push(createDefaultTrigger());
-        data.states.push(state);
-    }
-    if (!data.states.length) data.states.push({ name: 'start', triggers: [createDefaultTrigger()] });
-    return data;
-}
-
 function handleImport(e) {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
         try {
-            const parsed = parseQuestFile(ev.target.result);
+            const parsed = parseQuestCode(ev.target.result);
             Object.assign(questData, parsed);
             questNameInput.value = parsed.name;
             activeStateIndex.value = 0;
+            activeTriggerIndex.value = 0;
             goToStep(0);
             ui.toast('Quest importiert!', 'success');
         } catch (err) {
@@ -409,6 +396,7 @@ async function resetQuest() {
     if (!confirmed) return;
     Object.assign(questData, { name: 'my_quest', states: [{ name: 'start', triggers: [createDefaultTrigger()] }] });
     activeStateIndex.value = 0;
+    activeTriggerIndex.value = 0;
     questNameInput.value = 'my_quest';
     goToStep(0);
 }
@@ -420,7 +408,7 @@ const TEMPLATES = {
         states: [
             {
                 name: 'start', triggers: [{
-                    type: 'click', npcVnum: 20016, npcName: 'Schmied', mobVnum: 0, mobName: '', itemVnum: 0, itemName: '', chatText: '', timerName: '',
+                    id: nextId(), type: 'click', npcVnum: 20016, npcName: 'Schmied', mobVnum: 0, mobName: '', itemVnum: 0, itemName: '', chatText: '', timerName: '',
                     conditions: [{ id: nextId(), type: 'level_check', params: { operator: '>=', value: 10 } }],
                     dialog: { title: 'Schmied', lines: ['Hallo Fremder!', 'Du siehst schwach aus.', 'Ich kann dir eine stärkere Waffe geben.'] },
                     selectOptions: [
@@ -434,19 +422,19 @@ const TEMPLATES = {
                     actions: []
                 }]
             },
-            { name: 'fertig', triggers: [{ type: 'click', npcVnum: 20016, npcName: 'Schmied', mobVnum: 0, mobName: '', itemVnum: 0, itemName: '', chatText: '', timerName: '', conditions: [], dialog: { title: 'Schmied', lines: ['Ich habe dir bereits geholfen!'] }, selectOptions: [], actions: [] }] }
+            { name: 'fertig', triggers: [{ id: nextId(), type: 'click', npcVnum: 20016, npcName: 'Schmied', mobVnum: 0, mobName: '', itemVnum: 0, itemName: '', chatText: '', timerName: '', conditions: [], dialog: { title: 'Schmied', lines: ['Ich habe dir bereits geholfen!'] }, selectOptions: [], actions: [] }] }
         ]
     },
     kill: {
         name: 'hundejagd_mission',
         states: [
-            { name: 'start', triggers: [{ type: 'click', npcVnum: 20011, npcName: 'Uriel', mobVnum: 0, mobName: '', itemVnum: 0, itemName: '', chatText: '', timerName: '', conditions: [], dialog: { title: 'Uriel', lines: ['Töte bitte 10 Wildhunde für mich!'] }, selectOptions: [{ id: nextId(), text: 'Mache ich!', actions: [{ id: nextId(), type: 'set_state', params: { state: 'jagd' } }] }], actions: [] }] },
-            { name: 'jagd', triggers: [{ type: 'kill', npcVnum: 0, npcName: '', mobVnum: 101, mobName: 'Wildhund', itemVnum: 0, itemName: '', chatText: '', timerName: '', conditions: [], dialog: { title: '', lines: [] }, selectOptions: [],
+            { name: 'start', triggers: [{ id: nextId(), type: 'click', npcVnum: 20011, npcName: 'Uriel', mobVnum: 0, mobName: '', itemVnum: 0, itemName: '', chatText: '', timerName: '', conditions: [], dialog: { title: 'Uriel', lines: ['Töte bitte 10 Wildhunde für mich!'] }, selectOptions: [{ id: nextId(), text: 'Mache ich!', actions: [{ id: nextId(), type: 'set_state', params: { state: 'jagd' } }] }], actions: [] }] },
+            { name: 'jagd', triggers: [{ id: nextId(), type: 'kill', npcVnum: 0, npcName: '', mobVnum: 101, mobName: 'Wildhund', itemVnum: 0, itemName: '', chatText: '', timerName: '', conditions: [], dialog: { title: '', lines: [] }, selectOptions: [],
                 actions: [
                     { id: nextId(), type: 'inc_flag', params: { flagName: 'hunde_kills' } },
                     { id: nextId(), type: 'custom_lua', params: { code: 'if pc.getqf("hunde_kills") >= 10 then\n    notice("Du hast alle Hunde getötet! Gehe zu Uriel.")\n    set_state("belohnung")\nend' } }
                 ] }] },
-            { name: 'belohnung', triggers: [{ type: 'click', npcVnum: 20011, npcName: 'Uriel', mobVnum: 0, mobName: '', itemVnum: 0, itemName: '', chatText: '', timerName: '', conditions: [], dialog: { title: 'Uriel', lines: ['Danke für deine Hilfe!', 'Hier ist dein Gold.'] }, selectOptions: [],
+            { name: 'belohnung', triggers: [{ id: nextId(), type: 'click', npcVnum: 20011, npcName: 'Uriel', mobVnum: 0, mobName: '', itemVnum: 0, itemName: '', chatText: '', timerName: '', conditions: [], dialog: { title: 'Uriel', lines: ['Danke für deine Hilfe!', 'Hier ist dein Gold.'] }, selectOptions: [],
                 actions: [{ id: nextId(), type: 'give_gold', params: { amount: 50000 } }, { id: nextId(), type: 'set_state', params: { state: 'abgeschlossen' } }] }] },
             { name: 'abgeschlossen', triggers: [createDefaultTrigger()] }
         ]
@@ -454,7 +442,7 @@ const TEMPLATES = {
     buff: {
         name: 'attribut_trank',
         states: [
-            { name: 'start', triggers: [{ type: 'use', npcVnum: 0, npcName: '', mobVnum: 0, mobName: '', itemVnum: 27987, itemName: 'Muschel', chatText: '', timerName: '', conditions: [], dialog: { title: '', lines: [] }, selectOptions: [],
+            { name: 'start', triggers: [{ id: nextId(), type: 'use', npcVnum: 0, npcName: '', mobVnum: 0, mobName: '', itemVnum: 27987, itemName: 'Muschel', chatText: '', timerName: '', conditions: [], dialog: { title: '', lines: [] }, selectOptions: [],
                 actions: [
                     { id: nextId(), type: 'remove_item', params: { vnum: 27987, amount: 1 } },
                     { id: nextId(), type: 'give_bonus', params: { bonusType: 'apply.MAX_HP', value: 1000, duration: '60*60*24*365*60' } },
@@ -465,13 +453,70 @@ const TEMPLATES = {
     login: {
         name: 'login_geschenk',
         states: [
-            { name: 'start', triggers: [{ type: 'login', npcVnum: 0, npcName: '', mobVnum: 0, mobName: '', itemVnum: 0, itemName: '', chatText: '', timerName: '', conditions: [{ id: nextId(), type: 'level_check', params: { operator: '>=', value: 30 } }], dialog: { title: '', lines: [] }, selectOptions: [],
+            { name: 'start', triggers: [{ id: nextId(), type: 'login', npcVnum: 0, npcName: '', mobVnum: 0, mobName: '', itemVnum: 0, itemName: '', chatText: '', timerName: '', conditions: [{ id: nextId(), type: 'level_check', params: { operator: '>=', value: 30 } }], dialog: { title: '', lines: [] }, selectOptions: [],
                 actions: [
                     { id: nextId(), type: 'notice', params: { message: 'Willkommen zurück! Da du Level 30 erreicht hast, hier dein Reittier!' } },
                     { id: nextId(), type: 'give_item', params: { vnum: 71114, amount: 1 } },
                     { id: nextId(), type: 'set_state', params: { state: 'abgeschlossen' } }
                 ] }] },
             { name: 'abgeschlossen', triggers: [createDefaultTrigger()] }
+        ]
+    },
+    // Referenz-Beispiel: zeigt in einem einzigen Quest jedes wichtige
+    // Konstrukt, das der Editor unterstützt (inkl. Multi-Trigger pro State
+    // und den gegen echte Server-Quests verifizierten Kill-/Letter-Triggern
+    // - siehe QUEST_SYNTAX.md). Gedacht zum Laden, Durchklicken und Lernen,
+    // nicht als fertiges Produktiv-Quest.
+    reference: {
+        name: 'referenz_beispiel',
+        states: [
+            { name: 'start', triggers: [{
+                id: nextId(), type: 'click', npcVnum: 20011, npcName: 'Uriel', mobVnum: 0, mobName: '', itemVnum: 0, itemName: '', chatText: '', timerName: '',
+                conditions: [{ id: nextId(), type: 'level_check', params: { operator: '>=', value: 5 } }],
+                dialog: { title: 'Uriel', lines: ['Ich brauche deine Hilfe!', 'Töte 5 Wildschweine und kehre zu mir zurück.'] },
+                selectOptions: [
+                    { id: nextId(), text: 'Ich helfe dir!', actions: [
+                        { id: nextId(), type: 'set_flag', params: { flagName: 'boar_kills', flagValue: 0 } },
+                        { id: nextId(), type: 'set_state', params: { state: 'jagd' } }
+                    ] },
+                    { id: nextId(), text: 'Kein Interesse.', actions: [] }
+                ],
+                actions: []
+            }] },
+            { name: 'jagd', triggers: [
+                {
+                    id: nextId(), type: 'kill', npcVnum: 0, npcName: '', mobVnum: 20110, mobName: 'boar', itemVnum: 0, itemName: '', chatText: '', timerName: '',
+                    conditions: [], dialog: { title: '', lines: [] }, selectOptions: [],
+                    actions: [
+                        { id: nextId(), type: 'inc_flag', params: { flagName: 'boar_kills' } },
+                        { id: nextId(), type: 'custom_lua', params: { code: 'if pc.getqf("boar_kills") >= 5 then\n    notice("Genug Wildschweine erlegt! Kehre zu Uriel zurück.")\n    set_state("belohnung")\nend' } }
+                    ]
+                },
+                {
+                    id: nextId(), type: 'click', npcVnum: 20011, npcName: 'Uriel', mobVnum: 0, mobName: '', itemVnum: 0, itemName: '', chatText: '', timerName: '',
+                    conditions: [], dialog: { title: 'Uriel', lines: ['Wie weit bist du?'] }, selectOptions: [], actions: []
+                }
+            ] },
+            { name: 'belohnung', triggers: [{
+                id: nextId(), type: 'click', npcVnum: 20011, npcName: 'Uriel', mobVnum: 0, mobName: '', itemVnum: 0, itemName: '', chatText: '', timerName: '',
+                conditions: [], dialog: { title: 'Uriel', lines: ['Gut gemacht! Hier ist dein Lohn.'] }, selectOptions: [],
+                actions: [
+                    { id: nextId(), type: 'give_item', params: { vnum: 50100, amount: 1 } },
+                    { id: nextId(), type: 'give_gold', params: { amount: 5000 } },
+                    { id: nextId(), type: 'set_state', params: { state: 'fertig' } }
+                ]
+            }] },
+            { name: 'fertig', triggers: [
+                {
+                    id: nextId(), type: 'letter', npcVnum: 0, npcName: '', mobVnum: 0, mobName: '', itemVnum: 0, itemName: '', chatText: '', timerName: '',
+                    conditions: [], dialog: { title: '', lines: [] }, selectOptions: [],
+                    actions: [{ id: nextId(), type: 'send_letter', params: { title: 'Quest abgeschlossen!' } }]
+                },
+                {
+                    id: nextId(), type: 'click', npcVnum: 20011, npcName: 'Uriel', mobVnum: 0, mobName: '', itemVnum: 0, itemName: '', chatText: '', timerName: '',
+                    conditions: [], dialog: { title: '', lines: ['Danke nochmal für deine Hilfe!'] }, selectOptions: [], actions: []
+                }
+            ] }
         ]
     }
 };
@@ -484,6 +529,7 @@ async function loadTemplate(key) {
     Object.assign(questData, { name: tpl.name, states: JSON.parse(JSON.stringify(tpl.states)) });
     questNameInput.value = tpl.name;
     activeStateIndex.value = 0;
+    activeTriggerIndex.value = 0;
     goToStep(0);
     ui.toast('Vorlage geladen!', 'success');
 }
@@ -500,6 +546,7 @@ onMounted(async () => {
         <div class="header-row">
             <h1>M2 <span class="accent">QUEST</span></h1>
             <div class="header-actions">
+                <router-link to="/guide.html?page=quest-syntax" class="m2-btn m2-btn-secondary small" style="text-decoration:none;">📜 Syntax-Anleitung</router-link>
                 <button class="m2-btn m2-btn-secondary small" @click="importFileInput.click()">📂 Import</button>
                 <input ref="importFileInput" type="file" accept=".quest,.lua,.txt" class="hidden" @change="handleImport">
                 <button class="m2-btn m2-btn-secondary small" @click="resetQuest">🔄 Reset</button>
@@ -551,11 +598,15 @@ onMounted(async () => {
                 <div class="templates-section" style="margin-bottom: 30px; background: rgba(0,0,0,0.1); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 15px;">
                     <label class="m2-label" style="margin-bottom:10px; display:block;">📚 Komplett fertige Vorlage laden (Überschreibt deine Daten)</label>
                     <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <button class="m2-btn m2-btn-secondary small" @click="loadTemplate('reference')">📖 Referenz-Beispiel (alle Bausteine)</button>
                         <button class="m2-btn m2-btn-secondary small" @click="loadTemplate('dialog')">💬 NPC Dialog</button>
                         <button class="m2-btn m2-btn-secondary small" @click="loadTemplate('kill')">⚔️ Sammel-/Kill-Quest</button>
                         <button class="m2-btn m2-btn-secondary small" @click="loadTemplate('buff')">🌟 Attribute Item</button>
                         <button class="m2-btn m2-btn-secondary small" @click="loadTemplate('login')">🔑 Login & Level-Up</button>
                     </div>
+                    <p class="m2-hint" style="margin-top:10px">
+                        Unsicher bei der Syntax? <router-link to="/guide.html?page=quest-syntax">📜 Ausführliche Quest-Syntax-Anleitung im Benutzerhandbuch</router-link>
+                    </p>
                 </div>
 
                 <div class="states-section">
@@ -598,6 +649,23 @@ onMounted(async () => {
 
                 <div class="active-state-badge">State: <span class="accent">{{ currentState.name }}</span></div>
 
+                <div class="trigger-manage-row">
+                    <div class="state-chips">
+                        <div
+                            v-for="(t, i) in currentState.triggers"
+                            :key="t.id"
+                            class="state-chip trigger-chip"
+                            :class="{ 'is-start': i === activeTriggerIndex }"
+                            @click="selectTrigger(i)"
+                        >
+                            <span>{{ triggerSummary(t) }}</span>
+                            <button v-if="currentState.triggers.length > 1" class="chip-remove" @click.stop="removeTrigger(i)">✕</button>
+                        </div>
+                    </div>
+                    <button class="m2-btn m2-btn-secondary small" @click="addTrigger">+ Trigger hinzufügen</button>
+                </div>
+                <p class="m2-hint" style="margin-bottom:20px">Ein State kann mehrere Trigger gleichzeitig haben, z.B. einen Klick- <em>und</em> einen Kill-Trigger im selben State.</p>
+
                 <div class="trigger-type-grid">
                     <button
                         v-for="tt in TRIGGER_TYPES"
@@ -613,7 +681,7 @@ onMounted(async () => {
                 </div>
 
                 <div class="trigger-target-section">
-                    <div v-if="currentTrigger.type === 'click' || currentTrigger.type === 'button'" class="m2-field-group">
+                    <div v-if="currentTrigger.type === 'click'" class="m2-field-group">
                         <label class="m2-label">🔍 NPC auswählen</label>
                         <div class="search-input-wrapper">
                             <input v-model="triggerNpcQuery" type="text" placeholder="NPC suchen (Name oder VNUM)..." class="m2-input" @input="onTriggerNpcSearch">
@@ -641,12 +709,26 @@ onMounted(async () => {
                         </div>
                     </div>
                     <div v-else-if="currentTrigger.type === 'chat'" class="m2-field-group">
-                        <label class="m2-label">💬 Chat-Befehl</label>
+                        <label class="m2-label">🔍 NPC auswählen</label>
+                        <div class="search-input-wrapper">
+                            <input v-model="triggerNpcQuery" type="text" placeholder="NPC suchen (Name oder VNUM)..." class="m2-input" @input="onTriggerNpcSearch">
+                            <div v-if="triggerNpcResults.length" class="search-results">
+                                <div v-for="n in triggerNpcResults" :key="n.vnum" class="search-result-item" @click="pickTriggerNpc(n)">[{{ n.vnum }}] {{ n.name }}</div>
+                            </div>
+                        </div>
+                        <label class="m2-label" style="margin-top:12px">💬 Chat-Befehl</label>
                         <input v-model="currentTrigger.chatText" type="text" placeholder="/questbefehl" class="m2-input">
+                        <span class="m2-hint">Löst nur aus, wenn der Spieler bei diesem NPC steht und genau diesen Text schreibt.</span>
                     </div>
                     <div v-else-if="currentTrigger.type === 'timer'" class="m2-field-group">
                         <label class="m2-label">⏱️ Timer-Name</label>
                         <input v-model="currentTrigger.timerName" type="text" placeholder="my_timer" class="m2-input">
+                    </div>
+                    <div v-else-if="currentTrigger.type === 'button'" class="info-box" style="margin-top:15px">
+                        <p>Der Quest-Button-Trigger hat kein Ziel - er löst spielweit aus, wenn der Quest-Button im Client gedrückt wird.</p>
+                    </div>
+                    <div v-else-if="currentTrigger.type === 'letter'" class="info-box" style="margin-top:15px">
+                        <p>Der Brief-Trigger hat kein Ziel. Er wird typischerweise als erster Trigger eines States genutzt, um dort per <code>send_letter(...)</code>-Aktion den nächsten Questbrief zu verschicken.</p>
                     </div>
                 </div>
             </div>
@@ -670,6 +752,12 @@ onMounted(async () => {
                 </div>
 
                 <div class="active-state-badge">State: <span class="accent">{{ currentState.name }}</span></div>
+                <div v-if="currentState.triggers.length > 1" class="m2-field-group trigger-select-field">
+                    <label class="m2-label">Bearbeiteter Trigger</label>
+                    <select v-model.number="activeTriggerIndex" class="m2-select">
+                        <option v-for="(t, i) in currentState.triggers" :key="t.id" :value="i">{{ triggerSummary(t) }}</option>
+                    </select>
+                </div>
 
                 <div class="items-list">
                     <div v-for="(cond, idx) in currentTrigger.conditions" :key="cond.id" class="condition-row">
@@ -747,6 +835,12 @@ onMounted(async () => {
                 </div>
 
                 <div class="active-state-badge">State: <span class="accent">{{ currentState.name }}</span></div>
+                <div v-if="currentState.triggers.length > 1" class="m2-field-group trigger-select-field">
+                    <label class="m2-label">Bearbeiteter Trigger</label>
+                    <select v-model.number="activeTriggerIndex" class="m2-select">
+                        <option v-for="(t, i) in currentState.triggers" :key="t.id" :value="i">{{ triggerSummary(t) }}</option>
+                    </select>
+                </div>
 
                 <div class="dialog-editor">
                     <div class="m2-field-group">
@@ -785,6 +879,12 @@ onMounted(async () => {
                 </div>
 
                 <div class="active-state-badge">State: <span class="accent">{{ currentState.name }}</span></div>
+                <div v-if="currentState.triggers.length > 1" class="m2-field-group trigger-select-field">
+                    <label class="m2-label">Bearbeiteter Trigger</label>
+                    <select v-model.number="activeTriggerIndex" class="m2-select">
+                        <option v-for="(t, i) in currentState.triggers" :key="t.id" :value="i">{{ triggerSummary(t) }}</option>
+                    </select>
+                </div>
 
                 <div class="items-list">
                     <div v-for="(action, idx) in currentTrigger.actions" :key="action.id" class="action-row">
@@ -891,6 +991,12 @@ onMounted(async () => {
                 </div>
 
                 <div class="active-state-badge">State: <span class="accent">{{ currentState.name }}</span></div>
+                <div v-if="currentState.triggers.length > 1" class="m2-field-group trigger-select-field">
+                    <label class="m2-label">Bearbeiteter Trigger</label>
+                    <select v-model.number="activeTriggerIndex" class="m2-select">
+                        <option v-for="(t, i) in currentState.triggers" :key="t.id" :value="i">{{ triggerSummary(t) }}</option>
+                    </select>
+                </div>
 
                 <div class="items-list">
                     <div v-for="(opt, idx) in currentTrigger.selectOptions" :key="opt.id" class="select-option-block">
@@ -1077,6 +1183,11 @@ h1 { font-size: 2.2rem; letter-spacing: 2px; margin-bottom: 5px; }
 .state-chip .chip-remove:hover { color: var(--danger); }
 
 .state-select-field { max-width: 300px; }
+
+.trigger-manage-row { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; margin-bottom: 8px; }
+.trigger-manage-row .state-chips { margin-bottom: 0; }
+.trigger-chip { cursor: pointer; }
+.trigger-select-field { max-width: 320px; margin-bottom: 20px; }
 
 .trigger-type-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 25px; }
 
