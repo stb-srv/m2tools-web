@@ -17,8 +17,17 @@ describe('buildWhenLine', () => {
         expect(buildWhenLine({ type: 'click', npcVnum: 101 })).toBe('when 101.click');
     });
 
-    it('builds a kill trigger keyed off mobVnum', () => {
-        expect(buildWhenLine({ type: 'kill', mobVnum: 202 })).toBe('when 202.kill');
+    it('builds a kill trigger from mobVnums', () => {
+        expect(buildWhenLine({ type: 'kill', mobVnums: [{ vnum: 202, name: 'Wolf' }] })).toBe('when 202.kill');
+    });
+
+    it('falls back to the legacy single mobVnum when mobVnums is empty', () => {
+        expect(buildWhenLine({ type: 'kill', mobVnum: 202, mobVnums: [] })).toBe('when 202.kill');
+    });
+
+    it('chains several monster VNUMs with "or"', () => {
+        expect(buildWhenLine({ type: 'kill', mobVnums: [{ vnum: 101, name: 'A' }, { vnum: 102, name: 'B' }, { vnum: 103, name: 'C' }] }))
+            .toBe('when 101.kill or 102.kill or 103.kill');
     });
 
     it('builds an NPC-scoped chat trigger and escapes its text', () => {
@@ -245,7 +254,7 @@ describe('parseQuestCode', () => {
             states: [{
                 name: 'jagd',
                 triggers: [{
-                    type: 'kill', mobVnum: 101,
+                    type: 'kill', mobVnums: [{ vnum: 101, name: 'Wildhund' }],
                     conditions: [],
                     dialog: null,
                     actions: [
@@ -288,8 +297,32 @@ describe('parseQuestCode', () => {
         const data = parseQuestCode(code);
         expect(data.states.map(s => s.name)).toEqual(['start', 'belohnung']);
         expect(data.states[0].triggers.map(t => t.type)).toEqual(['click', 'kill']);
-        expect(data.states[0].triggers[1].mobVnum).toBe(101);
+        expect(data.states[0].triggers[1].mobVnums).toEqual([{ vnum: 101, name: '' }]);
         expect(data.states[1].triggers[0].type).toBe('login');
+    });
+
+    it('round-trips a kill trigger with several monster VNUMs chained by "or"', () => {
+        const original = {
+            name: 'q',
+            states: [{
+                name: 'jagd',
+                triggers: [{
+                    type: 'kill',
+                    mobVnums: [{ vnum: 631, name: 'A' }, { vnum: 632, name: 'B' }, { vnum: 633, name: 'C' }],
+                    conditions: [], dialog: null,
+                    actions: [{ type: 'give_item', params: { vnum: 30220, amount: 1 } }],
+                    selectOptions: []
+                }]
+            }]
+        };
+        const generated = generateLuaCode(original);
+        expect(generated).toContain('when 631.kill or 632.kill or 633.kill begin');
+
+        const parsed = parseQuestCode(generated);
+        const t = parsed.states[0].triggers[0];
+        expect(t.type).toBe('kill');
+        expect(t.mobVnums).toEqual([{ vnum: 631, name: '' }, { vnum: 632, name: '' }, { vnum: 633, name: '' }]);
+        expect(t.actions).toEqual([{ id: expect.any(Number), type: 'give_item', params: { vnum: 30220, amount: 1 } }]);
     });
 
     it('parses an NPC-scoped chat trigger', () => {

@@ -115,7 +115,7 @@ function showSection(id) {
                         <thead><tr><th>Trigger</th><th>Generierter Code</th><th>Wann löst er aus?</th><th></th></tr></thead>
                         <tbody>
                             <tr><td>👤 NPC Klick</td><td><code>when &lt;npcVnum&gt;.click begin</code></td><td>Spieler klickt den gewählten NPC an.</td><td>✅</td></tr>
-                            <tr><td>⚔️ Monster töten</td><td><code>when &lt;mobVnum&gt;.kill begin</code></td><td>Spieler tötet ein Monster mit dieser VNUM.</td><td>✅</td></tr>
+                            <tr><td>⚔️ Monster töten</td><td><code>when &lt;vnum&gt;.kill begin</code> (mehrere: <code>A.kill or B.kill or ...</code>)</td><td>Spieler tötet eines der gewählten Monster. Mehrere Monster können im Editor per "Monster hinzufügen" ergänzt werden.</td><td>✅</td></tr>
                             <tr><td>🎒 Item benutzen</td><td><code>when &lt;itemVnum&gt;.use begin</code></td><td>Spieler benutzt das gewählte Item im Inventar.</td><td>✅</td></tr>
                             <tr><td>🔑 Login</td><td><code>when login begin</code></td><td>Spieler loggt sich ein.</td><td>✅</td></tr>
                             <tr><td>⬆️ Level-Up</td><td><code>when levelup begin</code></td><td>Spieler steigt ein Level auf.</td><td>✅</td></tr>
@@ -176,7 +176,7 @@ end</code></pre>
 
                 <div class="alert-box">
                     ⚠️
-                    <div><strong>Grenzen des Editors:</strong> Mehrere Monster-VNUMs in einem einzigen Kill-Trigger (<code>when A.kill or B.kill or ... begin</code>) unterstützt die UI aktuell nicht direkt - lege stattdessen mehrere Kill-Trigger im selben State an (State-Chips auf Schritt "Trigger"). Serverspezifische Funktionen (Gilden, Heirat, Reittiere, Ziel-System) bildet die UI nicht ab - dafür gibt es die Aktion "Eigener Lua-Code".</div>
+                    <div><strong>Grenzen des Editors:</strong> Serverspezifische Funktionen (Gilden, Heirat, Reittiere, Ziel-System) bildet die UI nicht ab - dafür gibt es die Aktion "Eigener Lua-Code".</div>
                 </div>
 
                 <h3 style="margin-top:35px">📖 Beispiel-Quest zum Nachvollziehen</h3>

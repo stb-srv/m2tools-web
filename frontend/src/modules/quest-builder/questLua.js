@@ -23,6 +23,12 @@ export function createDefaultTrigger() {
         type: 'click',
         npcVnum: 0, npcName: '',
         mobVnum: 0, mobName: '',
+        // Kill triggers can react to several monster VNUMs at once
+        // ("when A.kill or B.kill or ... begin", verified against real
+        // quests - e.g. `quest/Biologie/Orkzahn.lua`'s 10-vnum chain). One
+        // entry is the common case; mobVnum/mobName above stay as a legacy
+        // single-value fallback for any hand-built trigger that skips this.
+        mobVnums: [],
         itemVnum: 0, itemName: '',
         chatText: '', timerName: '',
         dialog: { title: '', lines: [''] },
@@ -38,8 +44,12 @@ export function buildWhenLine(t) {
         // Verified against 870 real production .quest files: every single
         // kill trigger in that corpus is "<mobVnum>.kill" (same shape as
         // .click/.use) - "kill with npc.get_race() == X" (the previous form
-        // here) never occurs once and is not valid QuestLib grammar.
-        case 'kill': return `when ${t.mobVnum || 0}.kill`;
+        // here) never occurs once and is not valid QuestLib grammar. Several
+        // VNUMs are chained with "or", also verified against the real corpus.
+        case 'kill': {
+            const vnums = (t.mobVnums && t.mobVnums.length) ? t.mobVnums.map(m => m.vnum) : [t.mobVnum || 0];
+            return `when ${vnums.map(v => `${v}.kill`).join(' or ')}`;
+        }
         case 'login': return 'when login';
         case 'levelup': return 'when levelup';
         case 'use': return `when ${t.itemVnum || 0}.use`;
@@ -343,7 +353,8 @@ function parseWhenClause(t, wl) {
         const m = wl.match(/(\d+)\.click$/); if (m) t.npcVnum = parseInt(m[1], 10);
     } else if (/\.kill$/.test(wl)) {
         t.type = 'kill';
-        const m = wl.match(/(\d+)\.kill$/); if (m) t.mobVnum = parseInt(m[1], 10);
+        // "A.kill or B.kill or ..." - collect every vnum, not just the first.
+        t.mobVnums = [...wl.matchAll(/(\d+)\.kill/g)].map(m => ({ vnum: parseInt(m[1], 10), name: '' }));
     } else if (wl === 'letter') {
         t.type = 'letter';
     } else if (wl === 'login') {

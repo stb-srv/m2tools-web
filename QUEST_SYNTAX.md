@@ -13,7 +13,7 @@ Diese Doku dokumentiert, welche Lua-Syntax der Quest Builder (`frontend/src/modu
 | Typ (UI) | Generierter Code | Status | Beleg |
 |---|---|---|---|
 | NPC Klick | `when <npcVnum>.click begin` | ✅ | 16× in Biologie/Sonstiges |
-| Monster töten | `when <mobVnum>.kill begin` | ❌ korrigiert | War vorher `when kill with npc.get_race() == X begin` – kommt **kein einziges Mal** in 870 Dateien vor. Echte Syntax ist identisch zu `.click`/`.use`, siehe `quest/Biologie/Orkzahn.lua:71`: `when 601.kill begin`. Mehrere Monster lassen sich per `or` verketten (`when 631.kill or 632.kill or ... begin`) – das unterstützt der Editor aktuell nicht direkt; als Workaround mehrere Kill-Trigger im selben State anlegen (Multi-Trigger-Feature). |
+| Monster töten | `when <mobVnum>.kill begin` (oder mit mehreren VNUMs: `when A.kill or B.kill or ... begin`) | ❌ korrigiert | War vorher `when kill with npc.get_race() == X begin` – kommt **kein einziges Mal** in 870 Dateien vor. Echte Syntax ist identisch zu `.click`/`.use`, siehe `quest/Biologie/Orkzahn.lua:71`: `when 601.kill begin`. Mehrere Monster lassen sich per `or` verketten – im Editor per "Monster hinzufügen" (mehrfach möglich, erzeugt automatisch die `or`-Kette). |
 | Item benutzen | `when <itemVnum>.use begin` | ✅ | 16× |
 | Login | `when login begin` | ✅ | 4× (auch kombiniert: `when login or levelup with pc.level >= N begin`) |
 | Level-Up | `when levelup begin` | ✅ | Teil der Login-Kombination oben |

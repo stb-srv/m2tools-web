@@ -143,7 +143,10 @@ async function searchApi(endpoint, query) {
 function syncTriggerQueryDisplays() {
     const t = currentTrigger.value;
     triggerNpcQuery.value = t.npcVnum ? `[${t.npcVnum}] ${t.npcName}` : '';
-    triggerMobQuery.value = t.mobVnum ? `[${t.mobVnum}] ${t.mobName}` : '';
+    // Kill triggers show an "add another monster" search box rather than a
+    // single selected value (currentTrigger.mobVnums is the source of
+    // truth, rendered separately as chips) - always start it empty.
+    triggerMobQuery.value = '';
     triggerItemQuery.value = t.itemVnum ? `[${t.itemVnum}] ${t.itemName}` : '';
     triggerNpcResults.value = [];
     triggerMobResults.value = [];
@@ -168,11 +171,14 @@ function pickTriggerNpc(item) {
 async function onTriggerMobSearch() {
     triggerMobResults.value = await searchApi('/api/quest/mobs/search', triggerMobQuery.value);
 }
-function pickTriggerMob(item) {
-    currentTrigger.value.mobVnum = item.vnum;
-    currentTrigger.value.mobName = item.name;
-    triggerMobQuery.value = `[${item.vnum}] ${item.name}`;
+function addTriggerMob(item) {
+    const list = currentTrigger.value.mobVnums;
+    if (!list.some(m => m.vnum === item.vnum)) list.push({ vnum: item.vnum, name: item.name });
+    triggerMobQuery.value = '';
     triggerMobResults.value = [];
+}
+function removeTriggerMob(idx) {
+    currentTrigger.value.mobVnums.splice(idx, 1);
 }
 function onTriggerItemSearch() {
     triggerItemResults.value = triggerItemQuery.value ? itemService.search(triggerItemQuery.value).slice(0, 20) : [];
@@ -429,7 +435,7 @@ const TEMPLATES = {
         name: 'hundejagd_mission',
         states: [
             { name: 'start', triggers: [{ id: nextId(), type: 'click', npcVnum: 20011, npcName: 'Uriel', mobVnum: 0, mobName: '', itemVnum: 0, itemName: '', chatText: '', timerName: '', conditions: [], dialog: { title: 'Uriel', lines: ['Töte bitte 10 Wildhunde für mich!'] }, selectOptions: [{ id: nextId(), text: 'Mache ich!', actions: [{ id: nextId(), type: 'set_state', params: { state: 'jagd' } }] }], actions: [] }] },
-            { name: 'jagd', triggers: [{ id: nextId(), type: 'kill', npcVnum: 0, npcName: '', mobVnum: 101, mobName: 'Wildhund', itemVnum: 0, itemName: '', chatText: '', timerName: '', conditions: [], dialog: { title: '', lines: [] }, selectOptions: [],
+            { name: 'jagd', triggers: [{ id: nextId(), type: 'kill', npcVnum: 0, npcName: '', mobVnum: 0, mobName: '', mobVnums: [{ vnum: 101, name: 'Wildhund' }], itemVnum: 0, itemName: '', chatText: '', timerName: '', conditions: [], dialog: { title: '', lines: [] }, selectOptions: [],
                 actions: [
                     { id: nextId(), type: 'inc_flag', params: { flagName: 'hunde_kills' } },
                     { id: nextId(), type: 'custom_lua', params: { code: 'if pc.getqf("hunde_kills") >= 10 then\n    notice("Du hast alle Hunde getötet! Gehe zu Uriel.")\n    set_state("belohnung")\nend' } }
@@ -485,7 +491,7 @@ const TEMPLATES = {
             }] },
             { name: 'jagd', triggers: [
                 {
-                    id: nextId(), type: 'kill', npcVnum: 0, npcName: '', mobVnum: 20110, mobName: 'boar', itemVnum: 0, itemName: '', chatText: '', timerName: '',
+                    id: nextId(), type: 'kill', npcVnum: 0, npcName: '', mobVnum: 0, mobName: '', mobVnums: [{ vnum: 20110, name: 'boar' }], itemVnum: 0, itemName: '', chatText: '', timerName: '',
                     conditions: [], dialog: { title: '', lines: [] }, selectOptions: [],
                     actions: [
                         { id: nextId(), type: 'inc_flag', params: { flagName: 'boar_kills' } },
@@ -691,13 +697,22 @@ onMounted(async () => {
                         </div>
                     </div>
                     <div v-else-if="currentTrigger.type === 'kill'" class="m2-field-group">
-                        <label class="m2-label">🔍 Monster auswählen</label>
+                        <label class="m2-label">🔍 Monster hinzufügen</label>
                         <div class="search-input-wrapper">
                             <input v-model="triggerMobQuery" type="text" placeholder="Monster suchen (Name oder VNUM)..." class="m2-input" @input="onTriggerMobSearch">
                             <div v-if="triggerMobResults.length" class="search-results">
-                                <div v-for="m in triggerMobResults" :key="m.vnum" class="search-result-item" @click="pickTriggerMob(m)">[{{ m.vnum }}] {{ m.name }}</div>
+                                <div v-for="m in triggerMobResults" :key="m.vnum" class="search-result-item" @click="addTriggerMob(m)">[{{ m.vnum }}] {{ m.name }}</div>
                             </div>
                         </div>
+                        <span class="m2-hint">Du kannst mehrere Monster hinzufügen - der Trigger löst dann bei jedem von ihnen aus (<code>when A.kill or B.kill ...</code>).</span>
+
+                        <div v-if="currentTrigger.mobVnums.length" class="state-chips" style="margin-top:12px">
+                            <div v-for="(m, mi) in currentTrigger.mobVnums" :key="m.vnum" class="state-chip">
+                                <span>[{{ m.vnum }}] {{ m.name || 'Unbekannt' }}</span>
+                                <button class="chip-remove" @click="removeTriggerMob(mi)">✕</button>
+                            </div>
+                        </div>
+                        <p v-else class="m2-hint" style="margin-top:8px; color: var(--danger);">Noch kein Monster gewählt - der Trigger löst so nie aus.</p>
                     </div>
                     <div v-else-if="currentTrigger.type === 'use'" class="m2-field-group">
                         <label class="m2-label">🔍 Item auswählen</label>
