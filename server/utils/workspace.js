@@ -157,4 +157,21 @@ async function getWorkspaceDbById(userId, wsId) {
     return openWorkspaceDb(userId, wsId);
 }
 
-module.exports = { getActiveWorkspace, resolveWorkspacePath, getWorkspaceScope, getWorkspaceDb, getWorkspaceDbById };
+/**
+ * Closes and evicts a workspace's cached DB handle, if one is open.
+ * Must be called before deleting a workspace's files - on Windows, a file
+ * with an open handle can't be removed (EBUSY/EPERM), which previously
+ * made workspace deletion fail after the DB row was already gone if the
+ * user had recently searched an NPC/mob for that workspace (which opens
+ * and caches its proto.db for up to CACHE_TTL).
+ */
+function closeWorkspaceDb(userId, wsId) {
+    const cacheKey = `${userId}_${wsId}`;
+    const cached = wsDbCache.get(cacheKey);
+    if (cached) {
+        try { cached.db.close(); } catch (err) { /* already closed */ }
+        wsDbCache.delete(cacheKey);
+    }
+}
+
+module.exports = { getActiveWorkspace, resolveWorkspacePath, getWorkspaceScope, getWorkspaceDb, getWorkspaceDbById, closeWorkspaceDb };

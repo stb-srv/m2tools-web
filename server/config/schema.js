@@ -178,8 +178,8 @@ async function ensureSchema(db) {
         
         // Default System Settings
         const defaults = [
-            ['storage_limit_standard', '20971520'], // 20MB
-            ['storage_limit_premium', '52428800'],  // 50MB
+            ['storage_limit_standard', '157286400'], // 150MB, per workspace (see storageService.checkQuota)
+            ['storage_limit_premium', '314572800'],  // 300MB, per workspace
             ['max_workspaces_per_user', '1'],
             ['max_teams_per_user', '3'],
             ['max_team_members', '5'],

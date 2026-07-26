@@ -2,9 +2,15 @@ const fs = require('fs-extra');
 const path = require('path');
 const db = require('../config/database');
 
-// Default Limits (fallback if DB fails)
-const DEFAULT_LIMIT_STANDARD = 20 * 1024 * 1024; // 20MB
-const DEFAULT_LIMIT_PREMIUM = 50 * 1024 * 1024;  // 50MB
+// Default per-workspace limits (fallback if DB fails, and initial value of
+// the admin-configurable system_settings.storage_limit_standard/premium).
+const DEFAULT_LIMIT_STANDARD = 150 * 1024 * 1024; // 150MB
+const DEFAULT_LIMIT_PREMIUM = 300 * 1024 * 1024;  // 300MB
+
+// Quota is enforced per workspace, not per user, but with a grace margin -
+// a workspace is only actually blocked once it's 10% over its own limit,
+// not the instant it crosses it.
+const QUOTA_GRACE_MULTIPLIER = 1.1;
 
 const STORAGE_ROOT = path.resolve(__dirname, '..', '..', 'server', 'storage', 'data');
 
@@ -92,25 +98,43 @@ async function repairWorkspaceDb(userId, wsId) {
 }
 
 /**
- * Recursively calculates the size of a directory in bytes.
+ * Recursively sums up the size of every file directly under a directory.
  */
-async function calculateUsage(userId) {
-    const userPath = path.join(STORAGE_ROOT, `user_${userId}`);
-    if (!(await fs.pathExists(userPath))) return 0;
+async function calculateDirSize(dirPath) {
+    if (!(await fs.pathExists(dirPath))) return 0;
 
     let totalSize = 0;
-    const files = await fs.readdir(userPath, { recursive: true });
-    
+    const files = await fs.readdir(dirPath, { recursive: true });
+
     for (const file of files) {
-        const stats = await fs.stat(path.join(userPath, file));
+        const stats = await fs.stat(path.join(dirPath, file));
         if (stats.isFile()) totalSize += stats.size;
     }
-    
+
     return totalSize;
 }
 
 /**
- * Returns the storage limit for a user based on their premium status and global system settings.
+ * Total storage used across *all* of a user's workspaces combined.
+ * Informational only (e.g. an account-wide total) - quota is enforced per
+ * workspace via calculateWorkspaceUsage()/checkQuota() below.
+ */
+async function calculateUsage(userId) {
+    return calculateDirSize(path.join(STORAGE_ROOT, `user_${userId}`));
+}
+
+/**
+ * Storage used by a single workspace (its own icons/db/exports folder).
+ * This is what quota is actually checked against - the limit is per
+ * workspace, so a user's total footprint is unbounded by workspace count.
+ */
+async function calculateWorkspaceUsage(userId, wsId) {
+    return calculateDirSize(path.join(STORAGE_ROOT, `user_${userId}`, `ws_${wsId}`));
+}
+
+/**
+ * Returns the per-workspace storage limit for a user, based on their
+ * premium status and admin-configured global system settings.
  */
 async function getLimit(userId) {
     try {
@@ -137,17 +161,18 @@ async function getLimit(userId) {
 }
 
 /**
- * Checks if adding the specified number of bytes will exceed the user's quota.
- * Throws an error if quota exceeded.
+ * Checks if adding the specified number of bytes to a specific workspace
+ * would push it more than 10% over that workspace's own quota. Throws an
+ * error (err.code === 'QUOTA_EXCEEDED') if so.
  */
-async function checkQuota(userId, bytesToAdd = 0) {
+async function checkQuota(userId, wsId, bytesToAdd = 0) {
     const [usage, limit] = await Promise.all([
-        calculateUsage(userId),
+        calculateWorkspaceUsage(userId, wsId),
         getLimit(userId)
     ]);
 
-    if (usage + bytesToAdd > limit) {
-        const err = new Error('Speicherkontingent überschritten');
+    if (usage + bytesToAdd > limit * QUOTA_GRACE_MULTIPLIER) {
+        const err = new Error('Speicherkontingent für diesen Workspace überschritten');
         err.code = 'QUOTA_EXCEEDED';
         err.limit = limit;
         err.usage = usage;
@@ -191,6 +216,7 @@ function getWorkspacePath(userId, wsId) {
 module.exports = {
     initWorkspace,
     calculateUsage,
+    calculateWorkspaceUsage,
     getLimit,
     checkQuota,
     getWorkspaceDbPath,

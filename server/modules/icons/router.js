@@ -32,7 +32,7 @@ router.post('/upload/:vnum', requireAuth, upload.single('icon'), async (req, res
 
         // Check quota
         try {
-            await storageService.checkQuota(userId, file.size);
+            await storageService.checkQuota(userId, ws.id, file.size);
         } catch (qErr) {
             if (qErr.code === 'QUOTA_EXCEEDED') {
                 throw new ApiError(403, 'Speicherkontingent überschritten', {

@@ -10,6 +10,20 @@ const workspaces = ref([]);
 const activeId = ref(null);
 const userTeams = ref([]);
 const loading = ref(true);
+const storageLimit = ref(0);
+
+function usageMb(ws) {
+    return ((ws.usage || 0) / 1024 / 1024).toFixed(1);
+}
+function limitMb() {
+    return (storageLimit.value / 1024 / 1024).toFixed(0);
+}
+function usagePercent(ws) {
+    return Math.min(100, ((ws.usage || 0) / (storageLimit.value || 1)) * 100);
+}
+function isNearLimit(ws) {
+    return (ws.usage || 0) > storageLimit.value * 0.9;
+}
 
 const createModalOpen = ref(false);
 const wsName = ref('');
@@ -30,6 +44,7 @@ async function loadWorkspaces() {
         const data = await wsRes.json();
         workspaces.value = data.workspaces || [];
         activeId.value = data.activeId;
+        storageLimit.value = data.limit || 0;
 
         const teamsRes = await auth.authFetch('/api/teams');
         userTeams.value = await teamsRes.json();
@@ -114,6 +129,15 @@ onMounted(loadWorkspaces);
                     <div class="ws-card-title">{{ ws.name }}</div>
                     <div class="ws-card-path">📂 {{ ws.base_path || 'Nicht festgelegt' }}</div>
                     <div class="ws-card-desc">{{ ws.description || '-' }}</div>
+                    <div class="ws-storage-wrap">
+                        <div class="m2-storage-label">
+                            <span>💾 Speicher</span>
+                            <span>{{ usageMb(ws) }}MB / {{ limitMb() }}MB</span>
+                        </div>
+                        <div class="m2-storage-bar">
+                            <div class="m2-storage-fill" :class="{ danger: isNearLimit(ws) }" :style="{ width: usagePercent(ws) + '%' }"></div>
+                        </div>
+                    </div>
                 </div>
                 <div class="ws-actions">
                     <button v-if="activeId !== ws.id" class="m2-btn m2-btn-primary m2-btn-sm" @click="selectWorkspace(ws.id)">Aktivieren</button>
@@ -137,7 +161,7 @@ onMounted(loadWorkspaces);
                     <input v-model="wsName" type="text" class="m2-input" placeholder="Mein Projekt" required>
 
                     <label>Zugehöriges Team</label>
-                    <select v-model="wsTeam" class="m2-input">
+                    <select v-model="wsTeam" class="m2-select">
                         <option value="">Persönlich (Privat)</option>
                         <option v-for="t in userTeams" :key="t.id" :value="t.id">{{ t.name }}</option>
                     </select>
@@ -180,6 +204,9 @@ onMounted(loadWorkspaces);
 .ws-card-title { font-size: 1.25rem; color: var(--text-heading); margin-bottom: 8px; font-weight: 700; font-family: var(--font-heading); }
 .ws-card-path { font-size: 0.8rem; color: var(--text-muted); word-break: break-all; margin-bottom: 12px; font-family: var(--font-mono); }
 .ws-card-desc { font-size: 0.9rem; line-height: 1.4; margin-bottom: 20px; color: var(--text-muted); }
+
+.ws-storage-wrap { margin-bottom: 10px; }
+.ws-storage-wrap .m2-storage-label { font-size: 0.75rem; }
 
 .ws-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; padding-top: 15px; border-top: 1px solid var(--border-color); }
 

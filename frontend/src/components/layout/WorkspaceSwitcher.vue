@@ -9,10 +9,12 @@ const ui = useUiStore();
 const isOpen = ref(false);
 const workspaces = ref([]);
 const activeId = ref(null);
-const usage = ref(0);
 const limit = ref(0);
 
 const activeWorkspace = computed(() => workspaces.value.find(w => w.id === activeId.value) || { name: 'Persönlich' });
+// Quota is per workspace, not account-wide - the bar shows the *active*
+// workspace's own usage against its own limit (see storageService.checkQuota()).
+const usage = computed(() => activeWorkspace.value.usage || 0);
 const usageMb = computed(() => (usage.value / 1024 / 1024).toFixed(1));
 const limitMb = computed(() => (limit.value / 1024 / 1024).toFixed(0));
 const isDanger = computed(() => usage.value > limit.value * 0.9);
@@ -24,7 +26,6 @@ async function load() {
         const data = await res.json();
         workspaces.value = data?.workspaces || [];
         activeId.value = data?.activeId ?? null;
-        usage.value = data?.usage || 0;
         limit.value = data?.limit || 0;
     } catch (e) {
         console.error('[WorkspaceSwitcher] load error:', e);
@@ -82,7 +83,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick));
 
             <div class="m2-storage-status">
                 <div class="m2-storage-label">
-                    <span>Speicherplatz</span>
+                    <span>Speicherplatz ({{ activeWorkspace.name }})</span>
                     <span>{{ usageMb }}MB / {{ limitMb }}MB</span>
                 </div>
                 <div class="m2-storage-bar">

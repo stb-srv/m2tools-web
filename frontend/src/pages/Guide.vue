@@ -264,14 +264,15 @@ end</code></pre>
                     <h1>💾 Speicherplatz & Limits</h1>
                     <p>Alles über Speicher-Quotas.</p>
                 </div>
-                <p>Um die Server-Stabilität zu gewährleisten, gibt es für jeden Account Speicherplatz-Limits für Workspaces.</p>
+                <p>Um die Server-Stabilität zu gewährleisten, gilt für jeden Workspace ein eigenes Speicherplatz-Limit - nicht ein gemeinsames Limit über alle deine Workspaces hinweg. Du kannst also mehrere Workspaces anlegen, ohne dass sie sich gegenseitig das Kontingent wegnehmen.</p>
                 <ul class="step-list">
-                    <li><strong>Standard-User:</strong> Haben in der Regel ein Limit von 20MB (ausreichend für DBs und einige hundert Icons).</li>
-                    <li><strong>Premium-User:</strong> Genießen erweiterte Limits (z.B. 50MB oder mehr) für umfangreiche Icon-Sammlungen.</li>
+                    <li><strong>Standard-User:</strong> Haben pro Workspace in der Regel ein Limit von 150MB (ausreichend für DBs und mehrere hundert Icons).</li>
+                    <li><strong>Premium-User:</strong> Genießen pro Workspace ein erweitertes Limit (z.B. 300MB oder mehr) für umfangreiche Icon-Sammlungen.</li>
+                    <li><strong>Toleranzgrenze:</strong> Ein Upload wird erst blockiert, wenn er den Workspace mehr als 10% über sein Limit bringen würde - kleine Überschreitungen sind also kein Problem.</li>
                 </ul>
                 <div class="alert-box">
                     ℹ️
-                    <div>Deine aktuelle Auslastung siehst du jederzeit oben rechts in der Navigation neben deinem Profilbild.</div>
+                    <div>Die Auslastung des gerade aktiven Workspaces siehst du jederzeit oben rechts in der Navigation neben deinem Profilbild. Auf der Workspaces-Seite zeigt jede Karte zusätzlich ihre eigene Auslastung an.</div>
                 </div>
             </section>
 

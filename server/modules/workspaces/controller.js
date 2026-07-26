@@ -5,7 +5,7 @@ const { existsSync, mkdirSync, writeFileSync } = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
 const ApiError = require('../../utils/apiError');
-const { getWorkspaceDbById } = require('../../utils/workspace');
+const { getWorkspaceDbById, closeWorkspaceDb } = require('../../utils/workspace');
 const protoImportService = require('../../services/protoImportService');
 
 /**
@@ -38,11 +38,17 @@ const list = async (req, res, next) => {
         const [userRows] = await db.query('SELECT current_workspace_id as activeId FROM m2em_users WHERE id = ?', [req.user.id]);
         const activeId = userRows[0]?.activeId;
 
-        // Include storage usage info
-        const usage = await storageService.calculateUsage(req.user.id);
+        // Quota is per workspace (see storageService.checkQuota()), so each
+        // card gets its own usage figure rather than one account-wide sum.
+        // Storage lives under the owning user's folder even for
+        // team-shared workspaces, so usage is looked up via w.userId.
+        const workspaces = await Promise.all(rows.map(async w => ({
+            ...w,
+            usage: await storageService.calculateWorkspaceUsage(w.userId, w.id)
+        })));
         const limit = await storageService.getLimit(req.user.id);
 
-        res.json({ workspaces: rows, activeId, usage, limit });
+        res.json({ workspaces, activeId, limit });
     } catch (err) {
         next(ApiError.internal('Fehler beim Auflisten der Workspaces', err.message));
     }
@@ -153,9 +159,32 @@ const remove = async (req, res, next) => {
         if (wsRows.length === 0) throw ApiError.forbidden('Nicht berechtigt oder Workspace existiert nicht');
 
         await db.query('DELETE FROM workspaces WHERE id = ? AND userId = ?', [id, req.user.id]);
-        
-        // Cleanup storage
-        await storageService.deleteWorkspaceData(req.user.id, id);
+
+        // workspace_connections/connection_audit_log only store a plain
+        // workspace_id integer column, not a foreign key with ON DELETE
+        // CASCADE - without this, a deleted workspace's SSH/DB credentials
+        // (encrypted, but still) and audit history would linger in the DB
+        // forever, orphaned and unreachable by any UI.
+        await db.query('DELETE FROM workspace_connections WHERE workspace_id = ?', [id]);
+        await db.query('DELETE FROM connection_audit_log WHERE workspace_id = ?', [id]);
+
+        // Close any cached proto.db handle for this workspace before
+        // removing its files - a recent Cube/Quest/Mob-Drop search keeps
+        // that file open for a few minutes, and on Windows an open file
+        // can't be deleted (EBUSY/EPERM).
+        closeWorkspaceDb(req.user.id, id);
+
+        // Cleanup storage - best effort. The DB row above is the source of
+        // truth for "does this workspace exist"; a filesystem error here
+        // (locked file, permissions, ...) must not turn an otherwise
+        // successful delete into an error response, which previously left
+        // the workspace still showing in the UI because the list never
+        // got reloaded after the failed request.
+        try {
+            await storageService.deleteWorkspaceData(req.user.id, id);
+        } catch (storageErr) {
+            console.error(`[Workspaces] Storage cleanup failed for user ${req.user.id}, workspace ${id}:`, storageErr.message);
+        }
 
         // Reset current_workspace_id if it was this one
         await db.query('UPDATE m2em_users SET current_workspace_id = NULL WHERE id = ? AND current_workspace_id = ?', [req.user.id, id]);
@@ -193,7 +222,7 @@ const uploadDb = async (req, res, next) => {
         await assertWorkspaceAccess(id, req.user.id);
 
         try {
-            await storageService.checkQuota(req.user.id, req.file.size);
+            await storageService.checkQuota(req.user.id, id, req.file.size);
         } catch (qErr) {
             if (qErr.code === 'QUOTA_EXCEEDED') throw new ApiError(403, qErr.message);
             throw qErr;
@@ -223,7 +252,7 @@ const uploadIcons = async (req, res, next) => {
         const iconDir = storageService.getWorkspaceIconPath(req.user.id, id);
         
         try {
-            await storageService.checkQuota(req.user.id, req.file.size);
+            await storageService.checkQuota(req.user.id, id, req.file.size);
         } catch (qErr) {
             if (qErr.code === 'QUOTA_EXCEEDED') throw new ApiError(403, qErr.message);
             throw qErr;

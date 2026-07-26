@@ -6,6 +6,7 @@ const AdmZip = require('adm-zip');
 jest.mock('../server/config/database', () => ({ query: jest.fn() }));
 jest.mock('../server/services/storageService', () => ({
     calculateUsage: jest.fn().mockResolvedValue(0),
+    calculateWorkspaceUsage: jest.fn().mockResolvedValue(0),
     getLimit: jest.fn().mockResolvedValue(20 * 1024 * 1024),
     initWorkspace: jest.fn().mockResolvedValue(undefined),
     checkQuota: jest.fn().mockResolvedValue(undefined),
@@ -19,13 +20,14 @@ jest.mock('../server/services/protoImportService', () => ({
     writeMobs: jest.fn()
 }));
 jest.mock('../server/utils/workspace', () => ({
-    getWorkspaceDbById: jest.fn()
+    getWorkspaceDbById: jest.fn(),
+    closeWorkspaceDb: jest.fn()
 }));
 
 const db = require('../server/config/database');
 const storageService = require('../server/services/storageService');
 const protoImportService = require('../server/services/protoImportService');
-const { getWorkspaceDbById } = require('../server/utils/workspace');
+const { getWorkspaceDbById, closeWorkspaceDb } = require('../server/utils/workspace');
 const controller = require('../server/modules/workspaces/controller');
 
 function makeReqRes({ params = {}, body = {}, user = { id: 1, role: 'viewer' }, file = undefined } = {}) {
@@ -40,6 +42,31 @@ beforeEach(() => {
     Object.values(storageService).forEach(fn => fn.mockClear && fn.mockClear());
     Object.values(protoImportService).forEach(fn => fn.mockClear && fn.mockClear());
     getWorkspaceDbById.mockReset();
+    closeWorkspaceDb.mockReset();
+});
+
+describe('list', () => {
+    test('attaches a per-workspace usage figure to each row instead of one account-wide total', async () => {
+        db.query
+            .mockResolvedValueOnce([[{ id: 4, userId: 1, name: 'A' }, { id: 7, userId: 1, name: 'B' }]]) // workspaces
+            .mockResolvedValueOnce([[{ activeId: 4 }]]); // current_workspace_id
+        storageService.calculateWorkspaceUsage
+            .mockResolvedValueOnce(1000) // for ws 4
+            .mockResolvedValueOnce(2000); // for ws 7
+
+        const { req, res, next } = makeReqRes();
+        await controller.list(req, res, next);
+
+        expect(next).not.toHaveBeenCalled();
+        const body = res.json.mock.calls[0][0];
+        expect(body.workspaces).toEqual([
+            expect.objectContaining({ id: 4, usage: 1000 }),
+            expect.objectContaining({ id: 7, usage: 2000 })
+        ]);
+        expect(storageService.calculateWorkspaceUsage).toHaveBeenCalledWith(1, 4);
+        expect(storageService.calculateWorkspaceUsage).toHaveBeenCalledWith(1, 7);
+        expect(body.usage).toBeUndefined(); // no more account-wide aggregate
+    });
 });
 
 describe('create', () => {
@@ -96,6 +123,53 @@ describe('remove', () => {
         await controller.remove(req, res, next);
         expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
         expect(storageService.deleteWorkspaceData).not.toHaveBeenCalled();
+    });
+
+    test('closes the cached DB handle before removing files, so a Windows file lock cannot block deletion', async () => {
+        db.query
+            .mockResolvedValueOnce([[{ id: 5 }]])       // ownership check
+            .mockResolvedValueOnce([{ affectedRows: 1 }]) // DELETE FROM workspaces
+            .mockResolvedValueOnce([{ affectedRows: 0 }]); // reset current_workspace_id
+        const { req, res, next } = makeReqRes({ params: { id: '5' } });
+        await controller.remove(req, res, next);
+
+        expect(next).not.toHaveBeenCalled();
+        expect(closeWorkspaceDb).toHaveBeenCalledWith(1, '5');
+        const closeCallOrder = closeWorkspaceDb.mock.invocationCallOrder[0];
+        const deleteDataCallOrder = storageService.deleteWorkspaceData.mock.invocationCallOrder[0];
+        expect(closeCallOrder).toBeLessThan(deleteDataCallOrder);
+        expect(res.json).toHaveBeenCalledWith({ success: true });
+    });
+
+    test('still reports success when storage cleanup fails (the DB row is already gone)', async () => {
+        db.query
+            .mockResolvedValueOnce([[{ id: 5 }]])
+            .mockResolvedValueOnce([{ affectedRows: 1 }])
+            .mockResolvedValueOnce([{ affectedRows: 0 }]);
+        storageService.deleteWorkspaceData.mockRejectedValueOnce(new Error('EBUSY: resource busy or locked'));
+        const { req, res, next } = makeReqRes({ params: { id: '5' } });
+        await controller.remove(req, res, next);
+
+        expect(next).not.toHaveBeenCalled();
+        expect(res.json).toHaveBeenCalledWith({ success: true });
+    });
+
+    test('also deletes the workspace_connections and connection_audit_log rows (no FK cascade on those tables)', async () => {
+        db.query
+            .mockResolvedValueOnce([[{ id: 5 }]])
+            .mockResolvedValueOnce([{ affectedRows: 1 }]) // DELETE FROM workspaces
+            .mockResolvedValueOnce([{ affectedRows: 1 }]) // DELETE FROM workspace_connections
+            .mockResolvedValueOnce([{ affectedRows: 3 }]) // DELETE FROM connection_audit_log
+            .mockResolvedValueOnce([{ affectedRows: 0 }]); // reset current_workspace_id
+        const { req, res, next } = makeReqRes({ params: { id: '5' } });
+        await controller.remove(req, res, next);
+
+        expect(next).not.toHaveBeenCalled();
+        const calledSql = db.query.mock.calls.map(c => c[0]);
+        expect(calledSql).toContain('DELETE FROM workspace_connections WHERE workspace_id = ?');
+        expect(calledSql).toContain('DELETE FROM connection_audit_log WHERE workspace_id = ?');
+        expect(db.query.mock.calls[2]).toEqual(['DELETE FROM workspace_connections WHERE workspace_id = ?', ['5']]);
+        expect(db.query.mock.calls[3]).toEqual(['DELETE FROM connection_audit_log WHERE workspace_id = ?', ['5']]);
     });
 });
 

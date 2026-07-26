@@ -26,7 +26,7 @@ const importItems = async (req, res, next) => {
 
         // Check storage quota (estimate 1KB per item)
         try {
-            await storageService.checkQuota(userId, items.length * 1024);
+            await storageService.checkQuota(userId, activeWS.id, items.length * 1024);
         } catch (quotaErr) {
             if (quotaErr.code === 'QUOTA_EXCEEDED') {
                 throw new ApiError(403, 'Speicherkontingent überschritten', {
@@ -71,7 +71,7 @@ const importMobs = async (req, res, next) => {
 
         // Check storage quota
         try {
-            await storageService.checkQuota(userId, mobs.length * 1024);
+            await storageService.checkQuota(userId, activeWS.id, mobs.length * 1024);
         } catch (quotaErr) {
             if (quotaErr.code === 'QUOTA_EXCEEDED') {
                 throw new ApiError(403, 'Speicherkontingent überschritten', {
