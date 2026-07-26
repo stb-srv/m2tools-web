@@ -23,6 +23,7 @@ RUN npm ci --omit=dev
 # after rebuilding from source against this exact image's Node/glibc,
 # otherwise the broken prebuild would still win at require-time.
 RUN cd node_modules/better-sqlite3 \
+    && node-gyp clean \
     && node-gyp rebuild --release \
     && rm -f prebuilds/*.node
 
