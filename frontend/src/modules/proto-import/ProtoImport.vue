@@ -24,7 +24,7 @@ const placeholder = computed(() => (
 
 async function loadStats() {
     try {
-        const res = await fetch('/api/proto/stats');
+        const res = await auth.authFetch('/api/proto/stats');
         stats.value = await res.json();
     } catch (err) {
         console.error('[ProtoImport] Stats load error:', err);
