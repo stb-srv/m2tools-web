@@ -44,6 +44,7 @@ function buildRuntimeConfig(row) {
         ssh_auth_method: row.ssh_auth_method || 'password',
         ssh_secret: row.ssh_secret_encrypted ? secretsCrypto.decrypt(row.ssh_secret_encrypted) : null,
         ssh_passphrase: row.ssh_passphrase_encrypted ? secretsCrypto.decrypt(row.ssh_passphrase_encrypted) : null,
+        ssh_host_key_fingerprint: row.ssh_host_key_fingerprint || null,
         remote_quest_path: row.remote_quest_path,
         remote_cube_path: row.remote_cube_path,
         cmd_restart_game: row.cmd_restart_game,
@@ -67,6 +68,10 @@ function toApiShape(row) {
         ssh_auth_method: row.ssh_auth_method,
         hasSshSecret: !!row.ssh_secret_encrypted,
         hasSshPassphrase: !!row.ssh_passphrase_encrypted,
+        // The fingerprint itself isn't a secret (it's meant to be compared
+        // against the hosting provider's control panel, same as any SSH
+        // client shows it) - safe to return in full, unlike the passwords/keys above.
+        ssh_host_key_fingerprint: row.ssh_host_key_fingerprint || null,
         remote_quest_path: row.remote_quest_path,
         remote_cube_path: row.remote_cube_path,
         cmd_restart_game: row.cmd_restart_game,
@@ -81,13 +86,21 @@ function toApiShape(row) {
     };
 }
 
-async function checkTestCooldown(workspaceId) {
-    const [settingRows] = await db.query('SELECT value FROM system_settings WHERE key = ?', ['connection_test_cooldown_seconds']);
-    const cooldownSeconds = parseInt(settingRows[0]?.value || '30');
+/**
+ * Generic per-workspace cooldown, keyed off the most recent matching
+ * connection_audit_log row. Reused for test/deploy/command actions, each
+ * with its own system_settings key and default (deploy/command are the
+ * important ones for preventing e.g. a restart-storm against the user's
+ * own server; test already had this before deploy/command got it too).
+ */
+async function checkActionCooldown(workspaceId, actionNames, settingKey, defaultSeconds) {
+    const [settingRows] = await db.query('SELECT value FROM system_settings WHERE key = ?', [settingKey]);
+    const cooldownSeconds = parseInt(settingRows[0]?.value || String(defaultSeconds));
 
+    const placeholders = actionNames.map(() => '?').join(',');
     const [rows] = await db.query(
-        `SELECT created_at FROM connection_audit_log WHERE workspace_id = ? AND action = 'test_connection' ORDER BY created_at DESC LIMIT 1`,
-        [workspaceId]
+        `SELECT created_at FROM connection_audit_log WHERE workspace_id = ? AND action IN (${placeholders}) ORDER BY created_at DESC LIMIT 1`,
+        [workspaceId, ...actionNames]
     );
     if (!rows.length) return;
 
@@ -97,7 +110,7 @@ async function checkTestCooldown(workspaceId) {
     if (elapsedSeconds < cooldownSeconds) {
         // 429, not 403: the frontend's authFetch treats any 401/403 as an
         // invalid session and force-logs-out - a rate-limit must not do that.
-        throw new ApiError(429, `Bitte warte noch ${Math.ceil(cooldownSeconds - elapsedSeconds)}s vor dem nächsten Verbindungstest.`);
+        throw new ApiError(429, `Bitte warte noch ${Math.ceil(cooldownSeconds - elapsedSeconds)}s vor der nächsten Aktion.`);
     }
 }
 
@@ -182,7 +195,7 @@ const testConnection = async (req, res, next) => {
     const { workspaceId } = req.params;
     try {
         await assertWorkspaceAccess(workspaceId, req.user.id);
-        await checkTestCooldown(workspaceId);
+        await checkActionCooldown(workspaceId, ['test_connection'], 'connection_test_cooldown_seconds', 30);
 
         const row = await getConnectionRow(workspaceId);
         if (!row) throw ApiError.badRequest('Keine Verbindung konfiguriert');
@@ -192,8 +205,16 @@ const testConnection = async (req, res, next) => {
 
         if (config.ssh_host) {
             try {
+                // TOFU: first successful test pins the host key; every
+                // subsequent connection (here and in deploy/command) is
+                // verified strictly against it in sshService.withConnection.
+                if (!config.ssh_host_key_fingerprint) {
+                    const fingerprint = await sshService.captureHostKeyFingerprint(config);
+                    await db.query('UPDATE workspace_connections SET ssh_host_key_fingerprint = ? WHERE workspace_id = ?', [fingerprint, workspaceId]);
+                    config.ssh_host_key_fingerprint = fingerprint;
+                }
                 await sshService.testConnection(config);
-                result.ssh = { ok: true };
+                result.ssh = { ok: true, hostKeyFingerprint: config.ssh_host_key_fingerprint };
                 await auditLogService.logConnectionAction(workspaceId, req.user.id, 'test_connection', 'ssh', true);
             } catch (err) {
                 result.ssh = { ok: false, error: err.message };
@@ -226,6 +247,7 @@ const deployQuest = async (req, res, next) => {
 
     try {
         await assertWorkspaceAccess(workspaceId, req.user.id);
+        await checkActionCooldown(workspaceId, ['sftp_upload'], 'deploy_cooldown_seconds', 5);
         const row = await getConnectionRow(workspaceId);
         if (!row || !row.ssh_host) throw ApiError.badRequest('Keine SSH-Verbindung konfiguriert');
         if (!row.remote_quest_path) throw ApiError.badRequest('Kein Quest-Pfad konfiguriert');
@@ -256,6 +278,7 @@ const deployCube = async (req, res, next) => {
 
     try {
         await assertWorkspaceAccess(workspaceId, req.user.id);
+        await checkActionCooldown(workspaceId, ['sftp_upload'], 'deploy_cooldown_seconds', 5);
         const row = await getConnectionRow(workspaceId);
         if (!row || !row.ssh_host) throw ApiError.badRequest('Keine SSH-Verbindung konfiguriert');
         if (!row.remote_cube_path) throw ApiError.badRequest('Kein Cube-Pfad konfiguriert');
@@ -288,6 +311,7 @@ const runCommand = async (req, res, next) => {
 
     try {
         await assertWorkspaceAccess(workspaceId, req.user.id);
+        await checkActionCooldown(workspaceId, ['ssh_command'], 'command_cooldown_seconds', 10);
         const row = await getConnectionRow(workspaceId);
         if (!row || !row.ssh_host) throw ApiError.badRequest('Keine SSH-Verbindung konfiguriert');
 
@@ -365,6 +389,21 @@ const dbPush = async (req, res, next) => {
     }
 };
 
+// POST /:workspaceId/forget-host-key - clears the pinned fingerprint so the
+// next test re-pins it (legitimate use: the remote server was reinstalled
+// and now presents a genuinely new host key).
+const forgetHostKey = async (req, res, next) => {
+    const { workspaceId } = req.params;
+    try {
+        await assertWorkspaceAccess(workspaceId, req.user.id);
+        await db.query('UPDATE workspace_connections SET ssh_host_key_fingerprint = NULL WHERE workspace_id = ?', [workspaceId]);
+        await auditLogService.logConnectionAction(workspaceId, req.user.id, 'forget_host_key', null, true);
+        res.json({ success: true });
+    } catch (err) {
+        next(err);
+    }
+};
+
 // GET /:workspaceId/audit-log
 const getAuditLog = async (req, res, next) => {
     const { workspaceId } = req.params;
@@ -377,4 +416,4 @@ const getAuditLog = async (req, res, next) => {
     }
 };
 
-module.exports = { get, upsert, testConnection, deployQuest, deployCube, runCommand, dbPull, dbPush, getAuditLog };
+module.exports = { get, upsert, testConnection, deployQuest, deployCube, runCommand, dbPull, dbPush, forgetHostKey, getAuditLog };

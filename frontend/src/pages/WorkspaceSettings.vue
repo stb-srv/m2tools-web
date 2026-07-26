@@ -98,6 +98,20 @@ async function runCommand(key, label) {
     }
 }
 
+async function forgetHostKeyNow() {
+    const confirmed = await ui.confirm(
+        'Host-Key vergessen?',
+        'Nur bestätigen, wenn du weißt warum (z.B. Server neu aufgesetzt). Der nächste Verbindungstest vertraut dann automatisch dem neuen Host-Key - ohne diese Bestätigung würde ein unbemerkt ausgetauschter Server sonst weiterhin abgelehnt.'
+    );
+    if (!confirmed) return;
+    try {
+        await conn.forgetHostKey();
+        ui.toast('Host-Key zurückgesetzt', 'success');
+    } catch (err) {
+        ui.toast(err.message, 'error');
+    }
+}
+
 async function syncDb(direction) {
     syncing.value = true;
     try {
@@ -240,6 +254,15 @@ onMounted(() => {
                 </p>
 
                 <h3 style="font-size: 1rem; color: var(--gold-primary); margin-bottom: 15px;">SSH / SFTP</h3>
+
+                <div v-if="conn.connection.value?.ssh_host_key_fingerprint" style="background: var(--bg-input); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 12px 15px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; gap: 15px; flex-wrap: wrap;">
+                    <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                        🔑 Gespeicherter Host-Key (SHA256): <code style="font-family: var(--font-mono);">{{ conn.connection.value.ssh_host_key_fingerprint }}</code><br>
+                        <span style="color: var(--text-muted);">Beim ersten Verbindungstest hinterlegt (Trust On First Use) - vergleiche ihn bei Bedarf mit der Anzeige deines Hosting-Anbieters.</span>
+                    </div>
+                    <button type="button" class="m2-btn m2-btn-secondary" style="font-size: 0.8rem; white-space: nowrap;" @click="forgetHostKeyNow">🔑 Host-Key vergessen</button>
+                </div>
+
                 <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 15px;">
                     <div class="m2-field-group">
                         <label class="m2-label">Host</label>

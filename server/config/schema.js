@@ -2,6 +2,24 @@
  * M2-Tools – Central Database Schema
  * Defines all required tables and default seeds.
  */
+
+/**
+ * Adds a column to an already-existing table if it isn't there yet. There's
+ * no migration framework in this project - `CREATE TABLE IF NOT EXISTS`
+ * only covers brand-new installs, so upgrading an existing table (e.g.
+ * adding ssh_host_key_fingerprint to workspace_connections after that
+ * table already has rows) needs this ALTER TABLE, with the "column
+ * already exists" error swallowed since that's the expected outcome on
+ * every boot after the first.
+ */
+async function addColumnIfMissing(db, table, column, ddl) {
+    try {
+        await db.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+    } catch (err) {
+        // Already present (SQLite: "duplicate column name", MySQL: "Duplicate column name") - ignore.
+    }
+}
+
 async function ensureSchema(db) {
     if (!db) return;
     const isSqlite = db.type === 'sqlite';
@@ -75,6 +93,7 @@ async function ensureSchema(db) {
                 ssh_auth_method TEXT DEFAULT 'password',
                 ssh_secret_encrypted TEXT,
                 ssh_passphrase_encrypted TEXT,
+                ssh_host_key_fingerprint TEXT,
                 remote_quest_path TEXT,
                 remote_cube_path TEXT,
                 cmd_restart_game TEXT,
@@ -89,6 +108,10 @@ async function ensureSchema(db) {
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
+        // TOFU host-key pinning was added after this table already had rows
+        // in some deployments - covered by CREATE TABLE above for fresh
+        // installs, this ALTER fills the gap for existing ones.
+        await addColumnIfMissing(db, 'workspace_connections', 'ssh_host_key_fingerprint', 'TEXT');
 
         await db.query(`
             CREATE TABLE IF NOT EXISTS connection_audit_log (
@@ -160,20 +183,33 @@ async function ensureSchema(db) {
             ['max_workspaces_per_user', '1'],
             ['max_teams_per_user', '3'],
             ['max_team_members', '5'],
-            ['connection_test_cooldown_seconds', '30']
+            ['connection_test_cooldown_seconds', '30'],
+            ['command_cooldown_seconds', '10'],
+            ['deploy_cooldown_seconds', '5']
         ];
+        // "INSERT OR IGNORE" is SQLite-only syntax; the SQLite adapter's
+        // query() runs everything through sqlMapper's translator, but the
+        // MySQL adapter passes SQL straight through untouched, so this has
+        // to branch here rather than relying on the translator.
+        const upsertSettingSql = isSqlite
+            ? 'INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)'
+            : 'INSERT IGNORE INTO system_settings (key, value) VALUES (?, ?)';
         for (const [key, val] of defaults) {
-            await db.query('INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)', [key, val]);
+            await db.query(upsertSettingSql, [key, val]);
         }
 
-        // Module Self-Sync
+        // Module Self-Sync - upserts each module's row without ever
+        // touching access_level on conflict, so an admin's runtime change
+        // via the Admin Panel survives every subsequent server restart.
         const { getModuleRegistry } = require('../utils/moduleLoader');
         const registry = getModuleRegistry();
+        const upsertModuleSql = isSqlite
+            ? `INSERT INTO modules_config (id, access_level) VALUES (?, ?)
+               ON CONFLICT(id) DO UPDATE SET id = excluded.id`
+            : `INSERT INTO modules_config (id, access_level) VALUES (?, ?)
+               ON DUPLICATE KEY UPDATE id = VALUES(id)`;
         for (const m of registry) {
-            await db.query(`
-                INSERT INTO modules_config (id, access_level) VALUES (?, ?)
-                ON CONFLICT(id) DO UPDATE SET id = excluded.id
-            `, [m.id, m.defaultAccess]);
+            await db.query(upsertModuleSql, [m.id, m.defaultAccess]);
         }
 
         console.log(`[DB] Schema synced (${registry.length} modules, default seeds applied)`);

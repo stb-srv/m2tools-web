@@ -86,6 +86,13 @@ export function useServerConnection(workspaceIdRef) {
         return parseOrThrow(res, 'Sync zu Server fehlgeschlagen');
     }
 
+    async function forgetHostKey() {
+        const res = await auth.authFetch(`/api/server_connections/${wsId()}/forget-host-key`, { method: 'POST' });
+        const data = await parseOrThrow(res, 'Host-Key konnte nicht zurückgesetzt werden');
+        await load();
+        return data;
+    }
+
     async function loadAuditLog() {
         if (!workspaceIdRef?.value) { auditLog.value = []; return; }
         const res = await auth.authFetch(`/api/server_connections/${wsId()}/audit-log`);
@@ -94,6 +101,6 @@ export function useServerConnection(workspaceIdRef) {
 
     return {
         connection, loading, auditLog,
-        load, save, test, deployQuest, deployCube, runCommand, dbPull, dbPush, loadAuditLog
+        load, save, test, deployQuest, deployCube, runCommand, dbPull, dbPush, forgetHostKey, loadAuditLog
     };
 }

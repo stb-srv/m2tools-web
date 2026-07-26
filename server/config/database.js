@@ -92,7 +92,7 @@ function createMysqlAdapter() {
 
     console.log(`[DB] MySQL/MariaDB pool created → ${process.env.DB_HOST || 'localhost'}/${process.env.DB_NAME || process.env.DB_PLAYER || 'player'}`);
 
-    return {
+    const adapter = {
         type: 'mysql',
         raw: pool,
 
@@ -104,6 +104,15 @@ function createMysqlAdapter() {
             await pool.end();
         }
     };
+
+    // ── Central Schema Setup ── (was previously only wired up for the
+    // SQLite adapter below - DB_TYPE=mysql left the app with no tables at
+    // all. ensureSchema already branches its DDL on adapter.type, so this
+    // was just a missing call site, not a missing implementation.)
+    const { ensureSchema } = require('./schema');
+    ensureSchema(adapter);
+
+    return adapter;
 }
 
 /* ═══════════════════════════════════════════════════════

@@ -13,6 +13,7 @@ router.post('/:workspaceId/deploy-cube', ...gate, controller.deployCube);
 router.post('/:workspaceId/command', ...gate, controller.runCommand);
 router.post('/:workspaceId/db/pull', ...gate, controller.dbPull);
 router.post('/:workspaceId/db/push', ...gate, controller.dbPush);
+router.post('/:workspaceId/forget-host-key', ...gate, controller.forgetHostKey);
 router.get('/:workspaceId/audit-log', ...gate, controller.getAuditLog);
 
 module.exports = router;

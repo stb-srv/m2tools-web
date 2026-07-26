@@ -2,6 +2,7 @@
 import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import JSZip from 'jszip';
 import { useUiStore } from '@/stores/ui';
+import { buildTgaBytes } from './tgaBytes';
 
 const ui = useUiStore();
 
@@ -136,33 +137,7 @@ async function createImageTGA(imageSrc, width, height) {
             ctx.drawImage(img, 0, 0, width, height);
 
             const imageData = ctx.getImageData(0, 0, width, height);
-            const data = imageData.data;
-
-            const header = new Uint8Array(18);
-            header[2] = 2;
-            header[12] = width & 0xFF;
-            header[13] = (width >> 8) & 0xFF;
-            header[14] = height & 0xFF;
-            header[15] = (height >> 8) & 0xFF;
-            header[16] = 32;
-            header[17] = 8;
-
-            const pixelCount = width * height;
-            const tgaData = new Uint8Array(pixelCount * 4);
-
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const sourceY = height - 1 - y;
-                    const sourceIdx = (sourceY * width + x) * 4;
-                    const targetIdx = (y * width + x) * 4;
-
-                    tgaData[targetIdx + 0] = data[sourceIdx + 2]; // B
-                    tgaData[targetIdx + 1] = data[sourceIdx + 1]; // G
-                    tgaData[targetIdx + 2] = data[sourceIdx + 0]; // R
-                    tgaData[targetIdx + 3] = data[sourceIdx + 3]; // A
-                }
-            }
-            resolve(new Uint8Array([...header, ...tgaData]));
+            resolve(buildTgaBytes(width, height, imageData.data));
         };
         img.src = imageSrc;
     });

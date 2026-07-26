@@ -98,7 +98,13 @@ export const useAuthStore = defineStore('auth', {
             }
 
             const res = await fetch(url, { ...options, headers });
-            if (res.status === 401 || res.status === 403) {
+            // 401 only, not 403: 401 means the session itself is invalid
+            // (expired/bad token) and warrants a forced logout. 403 means
+            // the session is fine but this action isn't permitted (wrong
+            // role, rate-limited, etc.) - logging the user out for that
+            // is both wrong and, for rate-limits, actively harmful (a 429
+            // is used for those specifically to avoid tripping this).
+            if (res.status === 401) {
                 this.clearSession();
                 if (!router.currentRoute.value.path.includes('login')) {
                     router.push({ path: '/login.html', query: { redirect: router.currentRoute.value.fullPath } });

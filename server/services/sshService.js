@@ -7,12 +7,21 @@
  * are never cached/pooled across requests, since that would mean holding
  * an authenticated connection open using another user's credentials
  * longer than a single action needs it.
+ *
+ * Host-key verification (TOFU - Trust On First Use, the same model real
+ * SSH clients use): the first successful `captureHostKeyFingerprint()`
+ * call pins the remote host's key fingerprint (via the controller, which
+ * persists it to workspace_connections.ssh_host_key_fingerprint). Every
+ * subsequent connection in `withConnection()` requires that pinned
+ * fingerprint to match exactly, closing the "any host key silently
+ * accepted" MITM gap.
  */
 const { Client } = require('ssh2');
 
 const CONNECT_TIMEOUT_MS = 8000;
 const COMMAND_TIMEOUT_MS = 15000;
 const OUTPUT_TRUNCATE_LENGTH = 4000;
+const HOST_HASH_ALGO = 'sha256';
 
 const ALLOWED_COMMAND_KEYS = ['restart_game', 'restart_db', 'status'];
 const COMMAND_FIELD_BY_KEY = {
@@ -21,11 +30,35 @@ const COMMAND_FIELD_BY_KEY = {
     status: 'cmd_status'
 };
 
+function buildAuthConnectOpts(config) {
+    const connectOpts = {
+        host: config.ssh_host,
+        port: config.ssh_port || 22,
+        username: config.ssh_username,
+        readyTimeout: CONNECT_TIMEOUT_MS
+    };
+    if (config.ssh_auth_method === 'key') {
+        connectOpts.privateKey = config.ssh_secret;
+        if (config.ssh_passphrase) connectOpts.passphrase = config.ssh_passphrase;
+    } else {
+        connectOpts.password = config.ssh_secret;
+    }
+    return connectOpts;
+}
+
 /**
- * Opens an SSH connection, runs `fn(conn)`, and always closes the
- * connection afterwards - regardless of whether `fn` resolved or threw.
+ * Opens an SSH connection with strict host-key verification, runs
+ * `fn(conn)`, and always closes the connection afterwards - regardless of
+ * whether `fn` resolved or threw. Requires `config.ssh_host_key_fingerprint`
+ * to already be pinned; if it isn't, rejects immediately without even
+ * attempting a connection (the caller must run captureHostKeyFingerprint
+ * first, which the controller's testConnection flow does automatically).
  */
 function withConnection(config, fn) {
+    if (!config.ssh_host_key_fingerprint) {
+        return Promise.reject(new Error('Kein bekannter Host-Key hinterlegt - bitte zuerst die Verbindung testen.'));
+    }
+
     return new Promise((resolve, reject) => {
         const conn = new Client();
         let settled = false;
@@ -45,20 +78,45 @@ function withConnection(config, fn) {
         });
         conn.on('error', (err) => finish(err));
 
-        const connectOpts = {
-            host: config.ssh_host,
-            port: config.ssh_port || 22,
-            username: config.ssh_username,
-            readyTimeout: CONNECT_TIMEOUT_MS
-        };
-        if (config.ssh_auth_method === 'key') {
-            connectOpts.privateKey = config.ssh_secret;
-            if (config.ssh_passphrase) connectOpts.passphrase = config.ssh_passphrase;
-        } else {
-            connectOpts.password = config.ssh_secret;
-        }
+        conn.connect({
+            ...buildAuthConnectOpts(config),
+            hostHash: HOST_HASH_ALGO,
+            hostVerifier: (key, verify) => verify(key === config.ssh_host_key_fingerprint)
+        });
+    });
+}
 
-        conn.connect(connectOpts);
+/**
+ * Connects once, accepting whatever host key the server presents, purely
+ * to capture its fingerprint for pinning. The hostVerifier callback fires
+ * during the handshake (before auth), so the fingerprint is captured even
+ * if the subsequent auth step fails with the given credentials.
+ */
+function captureHostKeyFingerprint(config) {
+    return new Promise((resolve, reject) => {
+        const conn = new Client();
+        let fingerprint = null;
+        let settled = false;
+
+        const finish = (err) => {
+            if (settled) return;
+            settled = true;
+            conn.end();
+            if (fingerprint) resolve(fingerprint);
+            else reject(err || new Error('Host-Key konnte nicht ermittelt werden'));
+        };
+
+        conn.on('ready', () => finish(null));
+        conn.on('error', (err) => finish(err));
+
+        conn.connect({
+            ...buildAuthConnectOpts(config),
+            hostHash: HOST_HASH_ALGO,
+            hostVerifier: (key, verify) => {
+                fingerprint = key;
+                verify(true);
+            }
+        });
     });
 }
 
@@ -120,4 +178,11 @@ function testConnection(config) {
     return withConnection(config, () => ({ ok: true }));
 }
 
-module.exports = { withConnection, uploadFile, runAllowlistedCommand, testConnection, ALLOWED_COMMAND_KEYS };
+module.exports = {
+    withConnection,
+    captureHostKeyFingerprint,
+    uploadFile,
+    runAllowlistedCommand,
+    testConnection,
+    ALLOWED_COMMAND_KEYS
+};

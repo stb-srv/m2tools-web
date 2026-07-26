@@ -9,6 +9,7 @@ vi.mock('@/router', () => ({
 }));
 
 import { useAuthStore } from './auth';
+import router from '@/router';
 
 // Node 22's built-in experimental `localStorage` global shadows happy-dom's
 // and throws without a --localstorage-file flag - stub a plain in-memory
@@ -91,5 +92,44 @@ describe('hasRole', () => {
         const auth = useAuthStore();
         auth.user = { role: 'banned' };
         expect(auth.hasRole('viewer')).toBe(false);
+    });
+});
+
+describe('authFetch', () => {
+    beforeEach(() => {
+        router.push.mockClear();
+    });
+
+    it('clears the session and redirects on 401 (invalid/expired session)', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 401 }));
+        const auth = useAuthStore();
+        auth.setSession('sometoken', { role: 'user' });
+
+        await auth.authFetch('/api/whatever');
+
+        expect(auth.isLoggedIn).toBe(false);
+        expect(router.push).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT clear the session or redirect on 403 (permission denied, incl. rate-limit-adjacent cases)', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 403 }));
+        const auth = useAuthStore();
+        auth.setSession('sometoken', { role: 'user' });
+
+        await auth.authFetch('/api/whatever');
+
+        expect(auth.isLoggedIn).toBe(true);
+        expect(router.push).not.toHaveBeenCalled();
+    });
+
+    it('does not touch the session on a normal 429 (rate limit)', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 429 }));
+        const auth = useAuthStore();
+        auth.setSession('sometoken', { role: 'user' });
+
+        await auth.authFetch('/api/whatever');
+
+        expect(auth.isLoggedIn).toBe(true);
+        expect(router.push).not.toHaveBeenCalled();
     });
 });
