@@ -29,6 +29,10 @@ export default defineConfig({
         }
     },
     test: {
-        environment: 'happy-dom'
+        environment: 'happy-dom',
+        // e2e/ holds Playwright specs (its own test() global, run via
+        // `npx playwright test`) - Vitest's default include pattern would
+        // otherwise also pick up *.spec.js there and fail to parse them.
+        exclude: ['**/node_modules/**', 'e2e/**']
     }
 });

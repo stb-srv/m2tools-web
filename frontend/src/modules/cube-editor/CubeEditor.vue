@@ -3,10 +3,37 @@ import { ref, reactive, computed, onMounted } from 'vue';
 import { useItemService } from '@/composables/useItemService';
 import { useAuthStore } from '@/stores/auth';
 import { useUiStore } from '@/stores/ui';
+import { useServerConnection } from '@/composables/useServerConnection';
 
 const itemService = useItemService();
 const auth = useAuthStore();
 const ui = useUiStore();
+
+const activeWorkspaceId = ref(null);
+const serverConn = useServerConnection(activeWorkspaceId);
+const deploying = ref(false);
+
+async function loadActiveWorkspaceConnection() {
+    try {
+        const res = await auth.authFetch('/api/workspaces/active');
+        const ws = res.ok ? await res.json() : null;
+        activeWorkspaceId.value = ws?.id || null;
+        if (activeWorkspaceId.value) await serverConn.load();
+    } catch { /* no active workspace / no access - deploy button just stays hidden */ }
+}
+
+async function deployCubeToServer() {
+    deploying.value = true;
+    try {
+        const output = buildCubeTxt();
+        const result = await serverConn.deployCube('cube.txt', output);
+        ui.toast(`An Server gesendet: ${result.remotePath}`, 'success');
+    } catch (err) {
+        ui.toast(err.message, 'error');
+    } finally {
+        deploying.value = false;
+    }
+}
 
 const recipes = ref([]);
 const npcNames = reactive({});
@@ -256,6 +283,7 @@ onMounted(async () => {
             await resolveContextNames();
         }
     } catch { /* start empty if no cube.txt exists yet */ }
+    loadActiveWorkspaceConnection();
 });
 </script>
 
@@ -273,6 +301,9 @@ onMounted(async () => {
                 <button class="m2-btn m2-btn-secondary" @click="importFileInput.click()">📁 Datei öffnen</button>
                 <input ref="importFileInput" type="file" class="hidden" accept=".txt" @change="handleImport">
                 <button class="m2-btn m2-btn-primary" @click="handleExport">📥 Download (Cube.txt)</button>
+                <button v-if="serverConn.connection.value?.remote_cube_path" class="m2-btn m2-btn-secondary" :disabled="deploying" @click="deployCubeToServer">
+                    {{ deploying ? '⏳ Sende...' : '📡 An Server senden' }}
+                </button>
                 <button class="m2-btn m2-btn-secondary" @click="showEditor()">➕ Neues Rezept</button>
             </div>
         </div>

@@ -1,0 +1,9 @@
+{
+    "id": "server_connections",
+    "name": "Server-Verbindungen",
+    "desc": "SSH/SFTP- und Live-Datenbank-Verbindung zum eigenen Metin2-Server verwalten.",
+    "icon": "🔌",
+    "api": "/api/server_connections",
+    "defaultAccess": "premium",
+    "category": "Development"
+}

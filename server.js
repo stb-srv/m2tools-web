@@ -252,6 +252,30 @@ app.use((err, req, res, next) => {
     });
 });
 
+// Fail fast if stored remote-server credentials (SSH/DB, see the
+// "Server-Verbindung" feature) exist but the key to decrypt them is
+// missing - continuing would silently make those credentials permanently
+// unusable, and any newly saved ones unrecoverable after the next restart.
+async function verifyCredentialsEncryptionKey() {
+    if (process.env.CREDENTIALS_ENCRYPTION_KEY) return;
+    try {
+        const db = require('./server/config/database');
+        const [rows] = await db.query('SELECT COUNT(*) as c FROM workspace_connections');
+        if ((rows[0]?.c || 0) > 0) {
+            console.error('\x1b[31m%s\x1b[0m', '[Boot] FATAL: workspace_connections enthält Einträge, aber CREDENTIALS_ENCRYPTION_KEY ist nicht gesetzt.');
+            console.error('\x1b[31m%s\x1b[0m', '[Boot]   Gespeicherte SSH/DB-Zugangsdaten können ohne diesen Schlüssel nicht entschlüsselt werden.');
+            console.error('\x1b[31m%s\x1b[0m', '[Boot]   Bitte CREDENTIALS_ENCRYPTION_KEY in .env setzen (siehe .env.example) und neu starten.');
+            process.exit(1);
+        }
+    } catch (err) {
+        // Table doesn't exist yet (fresh install, schema not migrated) - nothing to protect yet.
+    }
+}
+
+(async () => {
+
+await verifyCredentialsEncryptionKey();
+
 app.listen(PORT, async () => {
 
     console.log(`\n  ⚔️  M2-Tools running at http://localhost:${PORT}`);
@@ -282,6 +306,8 @@ app.listen(PORT, async () => {
 
     }
 
-  
+
 
 });
+
+})();

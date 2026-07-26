@@ -23,7 +23,7 @@ const commands = computed(() => {
     ];
 
     auth.modules.forEach(m => {
-        if (m.id === 'dashboard' || m.id === 'item_manager') return;
+        if (m.id === 'dashboard' || m.id === 'item_manager' || m.id === 'server_connections') return;
         if (!auth.canAccess(m.access_level)) return;
         list.push({ id: 'mod_' + m.id, title: m.name + ' öffnen', icon: m.icon || '🛠️', shortcut: 'Modul', action: () => router.push(m.url) });
     });

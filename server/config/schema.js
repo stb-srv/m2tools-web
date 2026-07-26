@@ -64,6 +64,45 @@ async function ensureSchema(db) {
             )
         `);
 
+        // ── WORKSPACE REMOTE CONNECTIONS (SSH/SFTP + Live-DB) ──
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS workspace_connections (
+                id INTEGER PRIMARY KEY ${isSqlite ? 'AUTOINCREMENT' : 'AUTO_INCREMENT'},
+                workspace_id INTEGER NOT NULL UNIQUE,
+                ssh_host TEXT,
+                ssh_port INTEGER DEFAULT 22,
+                ssh_username TEXT,
+                ssh_auth_method TEXT DEFAULT 'password',
+                ssh_secret_encrypted TEXT,
+                ssh_passphrase_encrypted TEXT,
+                remote_quest_path TEXT,
+                remote_cube_path TEXT,
+                cmd_restart_game TEXT,
+                cmd_restart_db TEXT,
+                cmd_status TEXT,
+                db_host TEXT,
+                db_port INTEGER DEFAULT 3306,
+                db_user TEXT,
+                db_name TEXT,
+                db_password_encrypted TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS connection_audit_log (
+                id INTEGER PRIMARY KEY ${isSqlite ? 'AUTOINCREMENT' : 'AUTO_INCREMENT'},
+                workspace_id INTEGER NOT NULL,
+                userId INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                detail TEXT,
+                success INTEGER NOT NULL,
+                error_message TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
         // ── TEAMS ────────────────────────────────────────
         await db.query(`
             CREATE TABLE IF NOT EXISTS m2em_teams (
@@ -120,7 +159,8 @@ async function ensureSchema(db) {
             ['storage_limit_premium', '52428800'],  // 50MB
             ['max_workspaces_per_user', '1'],
             ['max_teams_per_user', '3'],
-            ['max_team_members', '5']
+            ['max_team_members', '5'],
+            ['connection_test_cooldown_seconds', '30']
         ];
         for (const [key, val] of defaults) {
             await db.query('INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)', [key, val]);

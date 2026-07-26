@@ -4,10 +4,36 @@ import { useItemService } from '@/composables/useItemService';
 import { useAuthStore } from '@/stores/auth';
 import { useUiStore } from '@/stores/ui';
 import { generateLuaCode } from './questLua';
+import { useServerConnection } from '@/composables/useServerConnection';
 
 const itemService = useItemService();
 const auth = useAuthStore();
 const ui = useUiStore();
+
+const activeWorkspaceId = ref(null);
+const serverConn = useServerConnection(activeWorkspaceId);
+const deploying = ref(false);
+
+async function loadActiveWorkspaceConnection() {
+    try {
+        const res = await auth.authFetch('/api/workspaces/active');
+        const ws = res.ok ? await res.json() : null;
+        activeWorkspaceId.value = ws?.id || null;
+        if (activeWorkspaceId.value) await serverConn.load();
+    } catch { /* no active workspace / no access - deploy button just stays hidden */ }
+}
+
+async function deployQuestToServer() {
+    deploying.value = true;
+    try {
+        const result = await serverConn.deployQuest(`${questData.name || 'quest'}.quest`, generatedCode.value);
+        ui.toast(`An Server gesendet: ${result.remotePath}`, 'success');
+    } catch (err) {
+        ui.toast(err.message, 'error');
+    } finally {
+        deploying.value = false;
+    }
+}
 
 const TOTAL_STEPS = 7;
 const STEP_LABELS = ['Grundlagen', 'Trigger', 'Bedingungen', 'Dialog', 'Aktionen', 'Verzweigung', 'Code & Export'];
@@ -465,6 +491,7 @@ async function loadTemplate(key) {
 onMounted(async () => {
     await itemService.autoInit();
     syncTriggerQueryDisplays();
+    loadActiveWorkspaceConnection();
 });
 </script>
 
@@ -939,6 +966,9 @@ onMounted(async () => {
                     <button class="btn ghost" @click="copyCode">📋 Code kopieren</button>
                     <button class="btn primary" @click="exportQuest('.quest')">⬇️ Als .quest exportieren</button>
                     <button class="btn ghost" @click="exportQuest('.lua')">⬇️ Als .lua exportieren</button>
+                    <button v-if="serverConn.connection.value?.remote_quest_path" class="btn ghost" :disabled="deploying" @click="deployQuestToServer">
+                        {{ deploying ? '⏳ Sende...' : '📡 An Server senden' }}
+                    </button>
                 </div>
 
                 <pre class="code-block"><code v-html="highlightedCode"></code></pre>

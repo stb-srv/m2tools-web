@@ -23,7 +23,7 @@ function isNew(m) {
 }
 
 const visibleModules = computed(() => modules.value.filter(m => {
-    if (m.id === 'item_manager') return false;
+    if (m.id === 'item_manager' || m.id === 'server_connections') return false;
     if (m.access_level === 'admin' && auth.user?.role !== 'admin') return false;
     if (!auth.user && !m.is_visible_guests) return false;
     return true;

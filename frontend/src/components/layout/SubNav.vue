@@ -7,7 +7,7 @@ const route = useRoute();
 const auth = useAuthStore();
 
 const links = computed(() => auth.modules.filter(m =>
-    m.id !== 'dashboard' && m.id !== 'item_manager' && auth.canAccess(m.access_level)
+    m.id !== 'dashboard' && m.id !== 'item_manager' && m.id !== 'server_connections' && auth.canAccess(m.access_level)
 ));
 
 function isActive(m) {
