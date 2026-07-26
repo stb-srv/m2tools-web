@@ -1,0 +1,15 @@
+node_modules
+frontend/node_modules
+frontend/dist
+frontend/test-results
+frontend/playwright-report
+public/dist
+data
+tmp
+mob_item_protos
+.git
+.github
+.claude
+.env
+.env.local
+*.log

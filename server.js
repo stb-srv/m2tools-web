@@ -133,6 +133,22 @@ app.use(express.json({ limit: '10mb' }));
 
 
 
+// Health check for uptime monitoring / container orchestration - deliberately
+// mounted before the /api/ rate limiter and any auth, and does a real DB
+// round-trip so a broken DB connection shows up as unhealthy, not just "server
+// process is alive".
+app.get('/health', async (req, res) => {
+    try {
+        const db = require('./server/config/database');
+        await db.query('SELECT 1');
+        res.json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });
+    } catch (err) {
+        res.status(503).json({ status: 'error', error: err.message });
+    }
+});
+
+
+
 // Apply rate limiting to all /api/ routes
 
 app.use('/api/', apiLimiter);
@@ -199,6 +215,11 @@ fs.readdirSync(modulesBaseDir).forEach(folder => {
             if (folder === 'auth') {
                 app.use(prefix + '/login', authLimiter);
                 app.use(prefix + '/register', authLimiter);
+                // Sends an email on every hit - same abuse potential as
+                // login/register (credential stuffing aside, this one can be
+                // used to spam a victim's inbox or run up SMTP costs), so it
+                // gets the stricter limiter too instead of just apiLimiter.
+                app.use(prefix + '/resend-verification', authLimiter);
             }
             if (prefix) {
                 app.use(prefix, router);

@@ -1,0 +1,31 @@
+services:
+  m2-tools:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      DB_TYPE: sqlite
+      # Required in production - the container refuses to start if saved
+      # Server-Verbindung credentials exist but this is unset. Generate with:
+      #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+      CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:?set CREDENTIALS_ENCRYPTION_KEY in .env}
+      # Optional but recommended - without it, sessions are invalidated on
+      # every container restart. Generate with:
+      #   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+      JWT_SECRET: ${JWT_SECRET:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+    volumes:
+      - m2tools-data:/app/data
+      - m2tools-basic:/app/public/basic
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  m2tools-data:
+  m2tools-basic:
