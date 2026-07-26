@@ -2,7 +2,7 @@
 # Compiles better-sqlite3's native addon and builds the Vue frontend into
 # public/dist/. Kept separate from the runtime stage so the compiler
 # toolchain (python3/make/g++, ~200MB) never ships in the final image.
-FROM node:20-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 make g++ \
@@ -34,7 +34,7 @@ COPY frontend ./frontend
 RUN npm run build --prefix frontend
 
 # ---- Runtime stage --------------------------------------------------------
-FROM node:20-bookworm-slim AS runtime
+FROM node:26-bookworm-slim AS runtime
 
 ENV NODE_ENV=production
 WORKDIR /app
