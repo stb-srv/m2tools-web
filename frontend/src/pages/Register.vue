@@ -154,16 +154,27 @@ async function onSubmit() {
 .field.full { grid-column: span 2; }
 .field label { display: block; margin-bottom: 8px; font-size: 0.8rem; font-weight: 600; color: var(--gold-primary); letter-spacing: 0.5px; }
 
-.m2-input-group {
+/* Prefixed with .login-card to reliably outrank shared.css's global
+   .m2-input-group/.input-icon-box rules (an absolute-overlay icon design
+   meant for other pages) - without this, the two designs' properties were
+   merging unpredictably depending on CSS chunk load order, leaving the
+   icon floating on top of the input text instead of beside it. */
+.login-card .m2-input-group {
+    position: static;
     display: flex; align-items: stretch;
     background: var(--bg-input); border: 1px solid var(--border-color); border-radius: var(--radius-sm);
     overflow: hidden; transition: all 0.3s;
 }
-.m2-input-group:focus-within { border-color: var(--gold-primary); box-shadow: 0 0 10px var(--gold-subtle); background: var(--bg-hover); }
+.login-card .m2-input-group:focus-within { border-color: var(--gold-primary); box-shadow: 0 0 10px var(--gold-subtle); background: var(--bg-hover); }
 
-.input-icon-box { width: 44px; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.03); border-right: 1px solid var(--border-color); font-size: 1.1rem; color: var(--gold-primary); }
+.login-card .input-icon-box {
+    position: static; transform: none;
+    width: 44px; display: flex; align-items: center; justify-content: center;
+    background: rgba(255, 255, 255, 0.03); border-right: 1px solid var(--border-color);
+    font-size: 1.1rem; color: var(--gold-primary);
+}
 
-.m2-input { flex: 1; padding: 12px 14px; background: transparent; border: none; color: var(--text-primary); font-family: inherit; font-size: 0.95rem; outline: none; }
+.login-card .m2-input { flex: 1; padding: 12px 14px; background: transparent; border: none; color: var(--text-primary); font-family: inherit; font-size: 0.95rem; outline: none; }
 
 .m2-btn-reg {
     width: 100%; padding: 16px; font-size: 1rem; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;

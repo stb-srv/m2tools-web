@@ -71,10 +71,13 @@ async function onSubmit() {
 .login-subtitle { font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px; margin-top: 5px; }
 .field { margin-bottom: 25px; text-align: left; }
 .field label { display: block; margin-bottom: 10px; font-size: 0.85rem; font-weight: 600; color: var(--gold-primary); letter-spacing: 0.5px; }
-.m2-input-group { display: flex; align-items: stretch; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: var(--radius-sm); overflow: hidden; transition: all 0.3s; }
-.m2-input-group:focus-within { border-color: var(--gold-primary); box-shadow: 0 0 10px var(--gold-subtle); background: var(--bg-hover); }
-.input-icon-box { width: 48px; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.03); border-right: 1px solid var(--border-color); font-size: 1.2rem; color: var(--gold-primary); }
-.m2-input { flex: 1; padding: 14px 15px; background: transparent; border: none; color: var(--text-primary); font-family: inherit; font-size: 1rem; outline: none; }
+/* .login-card prefix: outranks shared.css's global .m2-input-group/
+   .input-icon-box rules (a different, absolute-overlay icon design meant
+   for other pages) so this page's own boxed-icon design always wins. */
+.login-card .m2-input-group { position: static; display: flex; align-items: stretch; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: var(--radius-sm); overflow: hidden; transition: all 0.3s; }
+.login-card .m2-input-group:focus-within { border-color: var(--gold-primary); box-shadow: 0 0 10px var(--gold-subtle); background: var(--bg-hover); }
+.login-card .input-icon-box { position: static; transform: none; width: 48px; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.03); border-right: 1px solid var(--border-color); font-size: 1.2rem; color: var(--gold-primary); }
+.login-card .m2-input { flex: 1; padding: 14px 15px; background: transparent; border: none; color: var(--text-primary); font-family: inherit; font-size: 1rem; outline: none; }
 .m2-btn-login { width: 100%; padding: 16px; font-size: 1rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin-top: 15px; cursor: pointer; border: none; background: linear-gradient(135deg, var(--gold-primary), var(--gold-accent)); color: #000; border-radius: var(--radius-sm); transition: all 0.4s; box-shadow: 0 10px 20px rgba(0,0,0,0.3); }
 .m2-btn-login:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 15px 30px rgba(195, 163, 74, 0.3); filter: brightness(1.2); }
 .m2-btn-login:disabled { opacity: 0.5; cursor: not-allowed; }
