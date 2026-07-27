@@ -1,0 +1,10 @@
+{
+    "id": "locale_editor",
+    "name": "Locale-String Editor",
+    "desc": "Bearbeite Übersetzungstabellen (locale_string.txt) als durchsuchbare Schlüssel/Wert-Tabelle.",
+    "icon": "🌐",
+    "url": "/modules/locale_editor/index.html",
+    "api": "/api/locale_editor",
+    "defaultAccess": "public",
+    "category": "Development"
+}

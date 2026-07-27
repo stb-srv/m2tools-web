@@ -94,7 +94,8 @@ describe('updateUserStatus', () => {
         db.query.mockResolvedValue([{ affectedRows: 1 }]);
         const { req, res, next } = makeReqRes({ body: { userId: 2, role: 'editor', isPremium: true } });
         await controller.updateUserStatus(req, res, next);
-        expect(db.query).toHaveBeenCalledTimes(2);
+        // 1 UPDATE + 1 audit-log INSERT per changed field (role, isPremium).
+        expect(db.query).toHaveBeenCalledTimes(4);
         expect(res.json).toHaveBeenCalledWith({ success: true });
     });
 
@@ -102,7 +103,8 @@ describe('updateUserStatus', () => {
         db.query.mockResolvedValue([{ affectedRows: 1 }]);
         const { req, res, next } = makeReqRes({ body: { userId: 2, isPremium: false } });
         await controller.updateUserStatus(req, res, next);
-        expect(db.query).toHaveBeenCalledTimes(1);
+        // 1 UPDATE + 1 audit-log INSERT, nothing for the omitted role field.
+        expect(db.query).toHaveBeenCalledTimes(2);
         expect(db.query.mock.calls[0][0]).toContain('is_premium');
     });
 });

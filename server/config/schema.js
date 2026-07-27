@@ -126,6 +126,33 @@ async function ensureSchema(db) {
             )
         `);
 
+        // Session invalidation ("force logout"): bumped whenever an admin
+        // forces a user's sessions to end, or a password changes - every
+        // JWT embeds the token_version it was issued with, requireAuth
+        // rejects any token whose version no longer matches the DB.
+        await addColumnIfMissing(db, 'm2em_users', 'token_version', 'INTEGER DEFAULT 0');
+
+        // TOTP-based 2FA (admin accounts). totp_secret/recovery_codes stay
+        // NULL until setup is confirmed (see auth/controller.js 2FA
+        // endpoints) - a generated-but-unconfirmed secret is never persisted.
+        await addColumnIfMissing(db, 'm2em_users', 'totp_secret', 'TEXT');
+        await addColumnIfMissing(db, 'm2em_users', 'totp_enabled', 'INTEGER DEFAULT 0');
+        await addColumnIfMissing(db, 'm2em_users', 'totp_recovery_codes', 'TEXT');
+
+        // ── ADMIN AUDIT LOG ──────────────────────────────
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY ${isSqlite ? 'AUTOINCREMENT' : 'AUTO_INCREMENT'},
+                actor_id INTEGER,
+                actor_username TEXT,
+                action TEXT NOT NULL,
+                target_type TEXT,
+                target_id TEXT,
+                detail TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
         // ── TEAMS ────────────────────────────────────────
         await db.query(`
             CREATE TABLE IF NOT EXISTS m2em_teams (
@@ -183,6 +210,7 @@ async function ensureSchema(db) {
             ['max_workspaces_per_user', '1'],
             ['max_teams_per_user', '3'],
             ['max_team_members', '5'],
+            ['idle_timeout_minutes', '60'],
             ['connection_test_cooldown_seconds', '30'],
             ['command_cooldown_seconds', '10'],
             ['deploy_cooldown_seconds', '5']

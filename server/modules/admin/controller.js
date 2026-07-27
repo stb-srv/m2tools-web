@@ -5,6 +5,9 @@ const db = require('../../config/database');
 const ApiError = require('../../utils/apiError');
 const { stripHTML } = require('../../utils/sanitizer');
 const itemScanner = require('./item_scanner');
+const runtimeConfig = require('../../config/runtimeConfig');
+const mailer = require('../auth/mailer');
+const { logAudit } = require('../../utils/auditLog');
 
 /**
  * Admin Module Initialization
@@ -54,10 +57,11 @@ const updateModuleConfig = async (req, res, next) => {
     try {
         await db.query(`
             INSERT INTO modules_config (id, access_level, is_visible_guests) VALUES (?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET 
+            ON CONFLICT(id) DO UPDATE SET
                 access_level = excluded.access_level,
                 is_visible_guests = excluded.is_visible_guests
         `, [id, access_level, is_visible_guests ? 1 : 0]);
+        await logAudit(req, 'module.access_updated', 'module', id, `access_level=${access_level}, visible_guests=${!!is_visible_guests}`);
         res.json({ success: true, message: 'Modul-Berechtigungen aktualisiert.' });
     } catch (err) {
         next(err);
@@ -95,9 +99,11 @@ const updateUserStatus = async (req, res, next) => {
     try {
         if (role !== undefined) {
             await db.query('UPDATE m2em_users SET role = ? WHERE id = ?', [role, userId]);
+            await logAudit(req, 'user.role_updated', 'user', userId, `role=${role}`);
         }
         if (isPremium !== undefined) {
             await db.query('UPDATE m2em_users SET is_premium = ? WHERE id = ?', [isPremium ? 1 : 0, userId]);
+            await logAudit(req, 'user.premium_updated', 'user', userId, `isPremium=${!!isPremium}`);
         }
         res.json({ success: true });
     } catch (err) {
@@ -138,6 +144,83 @@ const updateSystemSettings = async (req, res, next) => {
 };
 
 /**
+ * Get current SMTP configuration (Admin only). Password is never sent
+ * back - only whether one is currently set - since these settings can
+ * only be entered once at /setup.html otherwise and there was no way to
+ * see or change them afterwards.
+ */
+const getSmtpSettings = async (req, res, next) => {
+    try {
+        res.json({
+            host: runtimeConfig.getManagedValue('SMTP_HOST'),
+            port: runtimeConfig.getManagedValue('SMTP_PORT'),
+            user: runtimeConfig.getManagedValue('SMTP_USER'),
+            hasPassword: !!runtimeConfig.getManagedValue('SMTP_PASS'),
+            fromName: runtimeConfig.getManagedValue('SMTP_FROM_NAME'),
+            from: runtimeConfig.getManagedValue('SMTP_FROM')
+        });
+    } catch (err) {
+        next(ApiError.internal('Fehler beim Laden der SMTP-Einstellungen', err.message));
+    }
+};
+
+/**
+ * Update SMTP configuration (Admin only). `pass` is optional on update -
+ * leaving it blank keeps the previously saved password instead of wiping it.
+ */
+const updateSmtpSettings = async (req, res, next) => {
+    const { host, port, user, pass, fromName, from } = req.body;
+    if (!host || !user) return next(ApiError.badRequest('SMTP-Host und Benutzer sind erforderlich'));
+
+    try {
+        const values = { SMTP_HOST: host, SMTP_USER: user };
+        if (port) values.SMTP_PORT = String(port);
+        if (pass) values.SMTP_PASS = pass;
+        if (fromName) values.SMTP_FROM_NAME = fromName;
+        if (from) values.SMTP_FROM = from;
+
+        runtimeConfig.saveConfig(values);
+        mailer.resetTransporter();
+        await logAudit(req, 'smtp.updated', 'system', null, `host=${host}, user=${user}`);
+
+        res.json({ success: true, message: 'SMTP-Einstellungen gespeichert' });
+    } catch (err) {
+        next(ApiError.internal('Fehler beim Speichern der SMTP-Einstellungen', err.message));
+    }
+};
+
+/**
+ * Public (no auth) subset of system_settings needed client-side before
+ * login is even confirmed - currently just the idle-logout timeout, so
+ * every session (not only admins) can enforce it locally.
+ */
+const getPublicSettings = async (req, res) => {
+    try {
+        const [rows] = await db.query("SELECT value FROM system_settings WHERE key = 'idle_timeout_minutes'");
+        const idleTimeoutMinutes = rows[0] ? parseInt(rows[0].value, 10) : 60;
+        res.json({ idleTimeoutMinutes: Number.isFinite(idleTimeoutMinutes) ? idleTimeoutMinutes : 60 });
+    } catch (err) {
+        res.json({ idleTimeoutMinutes: 60 });
+    }
+};
+
+/**
+ * Get recent admin audit-log entries (Admin only).
+ */
+const getAuditLog = async (req, res, next) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+        const [rows] = await db.query(
+            'SELECT id, actor_id, actor_username, action, target_type, target_id, detail, created_at FROM audit_log ORDER BY id DESC LIMIT ?',
+            [limit]
+        );
+        res.json(rows);
+    } catch (err) {
+        next(ApiError.internal('Fehler beim Laden des Audit-Logs', err.message));
+    }
+};
+
+/**
  * Get item database (Admin Item-Manager).
  */
 const getItems = async (req, res, next) => {
@@ -171,5 +254,9 @@ const getChangelogs = async (req, res, next) => {
     }
 };
 
-module.exports = { getModuleConfigs, updateModuleConfig, getAllUsers, updateUserStatus, getSystemSettings, updateSystemSettings, getItems, getChangelogs };
+module.exports = {
+    getModuleConfigs, updateModuleConfig, getAllUsers, updateUserStatus,
+    getSystemSettings, updateSystemSettings, getSmtpSettings, updateSmtpSettings,
+    getPublicSettings, getAuditLog, getItems, getChangelogs
+};
 

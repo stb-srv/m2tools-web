@@ -1,5 +1,6 @@
 const db = require('../../config/database');
 const ApiError = require('../../utils/apiError');
+const { logAudit } = require('../../utils/auditLog');
 
 // List teams for user
 const list = async (req, res, next) => {
@@ -152,6 +153,13 @@ const deleteTeam = async (req, res, next) => {
         await db.query('DELETE FROM m2em_team_members WHERE team_id = ?', [tid]);
         // Delete team
         await db.query('DELETE FROM m2em_teams WHERE id = ?', [tid]);
+
+        // Only log admin overrides, not routine self-service deletions by
+        // the team's own owner - the audit log is for "who used admin
+        // power over someone else's data", not a general activity feed.
+        if (isAdmin && !isOwner) {
+            await logAudit(req, 'team.deleted', 'team', tid);
+        }
         
         // Unlink workspaces
         await db.query('UPDATE workspaces SET team_id = NULL WHERE team_id = ?', [tid]);

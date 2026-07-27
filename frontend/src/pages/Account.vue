@@ -15,6 +15,82 @@ const newPwConfirm = ref('');
 const uploadStatus = ref('');
 const iconZipInput = ref(null);
 
+// ── 2FA (admin only) ──────────────────────────────────
+const twoFAEnabled = ref(false);
+const setupData = ref(null); // { secret, qrCodeDataUrl }
+const setupCode = ref('');
+const recoveryCodes = ref([]);
+const disablePw = ref('');
+const disableCode = ref('');
+
+async function load2FAStatus() {
+    try {
+        const res = await auth.authFetch('/api/auth/2fa/status');
+        const data = await res.json();
+        twoFAEnabled.value = !!data.enabled;
+    } catch {
+        // Non-critical - the section just stays in its default (disabled) state.
+    }
+}
+
+async function start2FASetup() {
+    try {
+        const res = await auth.authFetch('/api/auth/2fa/setup', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            setupData.value = { secret: data.secret, qrCodeDataUrl: data.qrCodeDataUrl };
+        } else {
+            ui.toast(data.error || 'Fehler beim Einrichten', 'error');
+        }
+    } catch {
+        ui.toast('Server-Fehler', 'error');
+    }
+}
+
+async function confirm2FASetup() {
+    if (!setupCode.value.trim()) { ui.toast('Bitte Code eingeben', 'error'); return; }
+    try {
+        const res = await auth.authFetch('/api/auth/2fa/verify-setup', {
+            method: 'POST',
+            body: JSON.stringify({ secret: setupData.value.secret, code: setupCode.value.trim() })
+        });
+        const data = await res.json();
+        if (data.success) {
+            recoveryCodes.value = data.recoveryCodes;
+            twoFAEnabled.value = true;
+            setupData.value = null;
+            setupCode.value = '';
+            ui.toast('2FA aktiviert!', 'success');
+        } else {
+            ui.toast(data.error || 'Ungültiger Code', 'error');
+        }
+    } catch {
+        ui.toast('Server-Fehler', 'error');
+    }
+}
+
+async function disable2FASubmit() {
+    if (!disablePw.value || !disableCode.value.trim()) { ui.toast('Passwort und Code erforderlich', 'error'); return; }
+    try {
+        const res = await auth.authFetch('/api/auth/2fa/disable', {
+            method: 'POST',
+            body: JSON.stringify({ password: disablePw.value, code: disableCode.value.trim() })
+        });
+        const data = await res.json();
+        if (data.success) {
+            twoFAEnabled.value = false;
+            recoveryCodes.value = [];
+            disablePw.value = '';
+            disableCode.value = '';
+            ui.toast('2FA deaktiviert', 'success');
+        } else {
+            ui.toast(data.error || 'Fehler beim Deaktivieren', 'error');
+        }
+    } catch {
+        ui.toast('Server-Fehler', 'error');
+    }
+}
+
 const avatarInitial = () => (user.value?.displayName || user.value?.username || '').charAt(0).toUpperCase();
 
 async function loadUser() {
@@ -121,7 +197,10 @@ async function onIconZipChange(e) {
     }
 }
 
-onMounted(loadUser);
+onMounted(() => {
+    loadUser();
+    if (auth.role === 'admin') load2FAStatus();
+});
 </script>
 
 <template>
@@ -198,6 +277,67 @@ onMounted(loadUser);
                     <button type="submit" class="m2-btn m2-btn-primary">🔒 Passwort ändern</button>
                 </div>
             </form>
+        </div>
+
+        <div v-if="auth.role === 'admin'" class="account-card">
+            <h2>🔐 Zwei-Faktor-Authentifizierung</h2>
+
+            <template v-if="recoveryCodes.length">
+                <p style="font-size: 0.85rem; color: var(--danger); margin-bottom: 15px;">
+                    ⚠️ Speichere diese Recovery-Codes jetzt sicher ab - sie werden nur einmal angezeigt! Jeder Code funktioniert einmalig, falls du keinen Zugriff mehr auf deine Authenticator-App hast.
+                </p>
+                <div style="background: var(--bg-input); border-radius: 8px; padding: 15px; font-family: monospace; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <span v-for="c in recoveryCodes" :key="c">{{ c }}</span>
+                </div>
+                <div class="account-actions">
+                    <button type="button" class="m2-btn m2-btn-primary" @click="recoveryCodes = []">Verstanden, gespeichert</button>
+                </div>
+            </template>
+
+            <template v-else-if="twoFAEnabled">
+                <p style="font-size: 0.85rem; color: var(--success); margin-bottom: 20px;">✅ 2FA ist für diesen Account aktiv.</p>
+                <form @submit.prevent="disable2FASubmit">
+                    <div class="form-row">
+                        <label>Passwort</label>
+                        <input v-model="disablePw" type="password" placeholder="••••••••" autocomplete="current-password">
+                    </div>
+                    <div class="form-row">
+                        <label>2FA-Code</label>
+                        <input v-model="disableCode" type="text" inputmode="numeric" placeholder="123456">
+                    </div>
+                    <div class="account-actions">
+                        <button type="submit" class="m2-btn m2-btn-secondary" style="color:#f44336; border-color: rgba(244,67,54,0.2);">🔓 2FA deaktivieren</button>
+                    </div>
+                </form>
+            </template>
+
+            <template v-else-if="setupData">
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 15px;">
+                    Scanne den QR-Code mit deiner Authenticator-App (z.B. Google Authenticator, Authy) und bestätige mit dem angezeigten Code.
+                </p>
+                <div style="text-align: center; margin-bottom: 15px;">
+                    <img :src="setupData.qrCodeDataUrl" alt="2FA QR-Code" style="background: #fff; padding: 10px; border-radius: 8px; max-width: 200px;">
+                    <div style="font-family: monospace; font-size: 0.75rem; color: var(--text-muted); margin-top: 10px; word-break: break-all;">{{ setupData.secret }}</div>
+                </div>
+                <form @submit.prevent="confirm2FASetup">
+                    <div class="form-row">
+                        <label>Code</label>
+                        <input v-model="setupCode" type="text" inputmode="numeric" placeholder="123456" autofocus>
+                    </div>
+                    <div class="account-actions">
+                        <button type="submit" class="m2-btn m2-btn-primary">✅ Bestätigen & Aktivieren</button>
+                    </div>
+                </form>
+            </template>
+
+            <template v-else>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 20px;">
+                    2FA ist aktuell deaktiviert. Da dieser Account Admin-Rechte hat, wird die Aktivierung dringend empfohlen.
+                </p>
+                <div class="account-actions">
+                    <button type="button" class="m2-btn m2-btn-primary" @click="start2FASetup">🔐 2FA einrichten</button>
+                </div>
+            </template>
         </div>
 
         <div class="account-card">

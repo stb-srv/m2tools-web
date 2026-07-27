@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { useUiStore } from '@/stores/ui';
 
@@ -13,29 +13,73 @@ const API = {
     updateUser: '/api/admin/users/update',
     settings: '/api/admin/settings',
     updateSettings: '/api/admin/settings/update',
+    smtp: '/api/admin/smtp',
+    updateSmtp: '/api/admin/smtp/update',
+    auditLog: '/api/admin/audit-log',
     teams: '/api/teams/admin/list',
-    deleteTeam: '/api/teams/admin/delete'
+    deleteTeam: '/api/teams/admin/delete',
+    forceLogout: (id) => `/api/auth/users/${id}/force-logout`
 };
 
 const modules = ref([]);
 const users = ref([]);
 const teams = ref([]);
+const auditLog = ref([]);
 
 const settings = ref({
     storageStd: 150,
     storagePre: 300,
     wsMax: 1,
     teamsMax: 3,
-    teamSize: 5
+    teamSize: 5,
+    idleTimeout: 60
+});
+
+// Order categories should be sorted in before falling back to alphabetical
+// for anything not listed - keeps the Modul-Berechtigungen table grouped
+// and predictable instead of one long flat list.
+const CATEGORY_ORDER = ['System', 'Admin', 'Database', 'Development'];
+
+const groupedModules = computed(() => {
+    const groups = {};
+    for (const m of modules.value) {
+        const cat = m.category || 'Sonstiges';
+        (groups[cat] = groups[cat] || []).push(m);
+    }
+    return Object.keys(groups)
+        .sort((a, b) => {
+            const ai = CATEGORY_ORDER.indexOf(a);
+            const bi = CATEGORY_ORDER.indexOf(b);
+            if (ai === -1 && bi === -1) return a.localeCompare(b);
+            if (ai === -1) return 1;
+            if (bi === -1) return -1;
+            return ai - bi;
+        })
+        .map(category => ({
+            category,
+            items: groups[category].sort((a, b) => a.name.localeCompare(b.name))
+        }));
+});
+
+const smtp = ref({
+    host: '',
+    port: '',
+    user: '',
+    pass: '',
+    hasPassword: false,
+    fromName: '',
+    from: ''
 });
 
 async function loadData() {
     try {
-        const [modRes, userRes, setRes, teamRes] = await Promise.all([
+        const [modRes, userRes, setRes, smtpRes, teamRes, auditRes] = await Promise.all([
             auth.authFetch(API.modules),
             auth.authFetch(API.users),
             auth.authFetch(API.settings),
-            auth.authFetch(API.teams)
+            auth.authFetch(API.smtp),
+            auth.authFetch(API.teams),
+            auth.authFetch(API.auditLog)
         ]);
 
         const modData = await modRes.json();
@@ -50,11 +94,18 @@ async function loadData() {
             storagePre: Math.round(parseInt(setData.storage_limit_premium || 314572800) / 1024 / 1024),
             wsMax: setData.max_workspaces_per_user || 1,
             teamsMax: setData.max_teams_per_user || 3,
-            teamSize: setData.max_team_members || 5
+            teamSize: setData.max_team_members || 5,
+            idleTimeout: setData.idle_timeout_minutes !== undefined ? parseInt(setData.idle_timeout_minutes) : 60
         };
+
+        const smtpData = await smtpRes.json();
+        smtp.value = { ...smtp.value, ...smtpData, pass: '' };
 
         const teamData = await teamRes.json();
         if (Array.isArray(teamData)) teams.value = teamData;
+
+        const auditData = await auditRes.json();
+        if (Array.isArray(auditData)) auditLog.value = auditData;
     } catch (err) {
         console.error(err);
         ui.toast('Fehler beim Laden: ' + err.message, 'error');
@@ -85,6 +136,20 @@ async function updateUserRole(u) {
     }
 }
 
+async function forceLogoutUser(u) {
+    const confirmed = await ui.confirm('Sitzung beenden?', `Alle aktiven Sitzungen von "${u.username}" sofort beenden? Der Benutzer muss sich neu anmelden.`);
+    if (!confirmed) return;
+    try {
+        const res = await auth.authFetch(API.forceLogout(u.id), { method: 'POST' });
+        if ((await res.json()).success) {
+            ui.toast('Sitzungen beendet', 'success');
+            loadData();
+        }
+    } catch {
+        ui.toast('Fehler beim Beenden der Sitzung', 'error');
+    }
+}
+
 async function deleteTeamAdmin(teamId) {
     const confirmed = await ui.confirm('Team löschen?', 'Dieses Team wirklich unwiderruflich löschen? Alle Mitglieder werden entfernt.');
     if (!confirmed) return;
@@ -101,7 +166,7 @@ async function deleteTeamAdmin(teamId) {
 
 async function saveSystemSettings() {
     try {
-        const { storageStd, storagePre, wsMax, teamsMax, teamSize } = settings.value;
+        const { storageStd, storagePre, wsMax, teamsMax, teamSize, idleTimeout } = settings.value;
         if (isNaN(storageStd) || isNaN(storagePre)) throw new Error('Bitte valide Zahlen eingeben');
 
         const payload = {
@@ -109,11 +174,39 @@ async function saveSystemSettings() {
             storage_limit_premium: Math.round(storagePre * 1024 * 1024),
             max_workspaces_per_user: parseInt(wsMax),
             max_teams_per_user: parseInt(teamsMax),
-            max_team_members: parseInt(teamSize)
+            max_team_members: parseInt(teamSize),
+            idle_timeout_minutes: parseInt(idleTimeout) || 0
         };
 
         const res = await auth.authFetch(API.updateSettings, { method: 'POST', body: JSON.stringify(payload) });
         if ((await res.json()).success) ui.toast('System-Einstellungen gespeichert', 'success');
+    } catch (err) {
+        ui.toast('Fehler: ' + err.message, 'error');
+    }
+}
+
+async function saveSmtpSettings() {
+    try {
+        if (!smtp.value.host || !smtp.value.user) throw new Error('Host und Benutzer sind erforderlich');
+
+        const payload = {
+            host: smtp.value.host,
+            port: smtp.value.port,
+            user: smtp.value.user,
+            fromName: smtp.value.fromName,
+            from: smtp.value.from
+        };
+        if (smtp.value.pass) payload.pass = smtp.value.pass;
+
+        const res = await auth.authFetch(API.updateSmtp, { method: 'POST', body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (data.success) {
+            ui.toast('SMTP-Einstellungen gespeichert', 'success');
+            smtp.value.pass = '';
+            smtp.value.hasPassword = smtp.value.hasPassword || !!payload.pass;
+        } else {
+            throw new Error(data.error || 'Speichern fehlgeschlagen');
+        }
     } catch (err) {
         ui.toast('Fehler: ' + err.message, 'error');
     }
@@ -147,8 +240,11 @@ onMounted(loadData);
                 <thead>
                     <tr><th>ID</th><th>Modul</th><th>Berechtigung</th><th>Sichtbarkeit</th><th>Status</th></tr>
                 </thead>
-                <tbody>
-                    <tr v-for="m in modules" :key="m.id">
+                <tbody v-for="group in groupedModules" :key="group.category">
+                    <tr>
+                        <td colspan="5" class="category-row">{{ group.category }}</td>
+                    </tr>
+                    <tr v-for="m in group.items" :key="m.id">
                         <td><code>{{ m.id }}</code></td>
                         <td><strong>{{ m.name }}</strong></td>
                         <td>
@@ -167,6 +263,46 @@ onMounted(loadData);
                     </tr>
                 </tbody>
             </table>
+        </div>
+
+        <div class="admin-card">
+            <h2>📧 SMTP-Einstellungen</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                Diese Werte werden einmalig beim Setup gesetzt, können hier aber jederzeit angepasst werden - z.B. wenn sich der Mail-Provider ändert.
+            </p>
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
+                <div class="m2-field-group">
+                    <label class="m2-label">SMTP-Host</label>
+                    <input v-model="smtp.host" type="text" class="m2-input" placeholder="z.B. smtp.gmail.com">
+                </div>
+                <div class="m2-field-group">
+                    <label class="m2-label">Port</label>
+                    <input v-model="smtp.port" type="text" class="m2-input" placeholder="587">
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
+                <div class="m2-field-group">
+                    <label class="m2-label">Benutzer</label>
+                    <input v-model="smtp.user" type="text" class="m2-input" placeholder="z.B. bot@example.com">
+                </div>
+                <div class="m2-field-group">
+                    <label class="m2-label">Passwort</label>
+                    <input v-model="smtp.pass" type="password" class="m2-input" :placeholder="smtp.hasPassword ? '•••••••• (unverändert lassen zum Beibehalten)' : 'Passwort eingeben'">
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
+                <div class="m2-field-group">
+                    <label class="m2-label">Absender-Name</label>
+                    <input v-model="smtp.fromName" type="text" class="m2-input" placeholder="z.B. M2-Tools">
+                </div>
+                <div class="m2-field-group">
+                    <label class="m2-label">Absender-E-Mail</label>
+                    <input v-model="smtp.from" type="email" class="m2-input" placeholder="z.B. no-reply@example.com">
+                </div>
+            </div>
+            <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
+                <button class="m2-btn m2-btn-primary" @click="saveSmtpSettings">💾 SMTP speichern</button>
+            </div>
         </div>
 
         <div class="admin-card">
@@ -190,7 +326,30 @@ onMounted(loadData);
                             <span v-if="u.isPremium" class="status-badge badge-premium">Premium</span>
                         </td>
                         <td>{{ new Date(u.createdAt).toLocaleDateString() }}</td>
-                        <td><button class="m2-btn m2-btn-secondary" style="padding: 2px 8px; font-size: 0.7rem;">Details</button></td>
+                        <td>
+                            <button class="m2-btn m2-btn-secondary" style="padding: 2px 8px; font-size: 0.7rem; color: #f44336; border-color: rgba(244,67,54,0.2);" @click="forceLogoutUser(u)">
+                                Sitzung beenden
+                            </button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="admin-card">
+            <h2>📜 Audit-Log</h2>
+            <table class="admin-table">
+                <thead>
+                    <tr><th>Zeit</th><th>Akteur</th><th>Aktion</th><th>Ziel</th><th>Detail</th></tr>
+                </thead>
+                <tbody>
+                    <tr v-if="auditLog.length === 0"><td colspan="5" style="text-align:center; opacity:0.6;">Noch keine Einträge</td></tr>
+                    <tr v-for="entry in auditLog" :key="entry.id">
+                        <td><small>{{ new Date(entry.created_at).toLocaleString('de-DE') }}</small></td>
+                        <td>{{ entry.actor_username || '—' }}</td>
+                        <td><code>{{ entry.action }}</code></td>
+                        <td><small v-if="entry.target_type">{{ entry.target_type }}#{{ entry.target_id }}</small></td>
+                        <td><small style="opacity:0.8;">{{ entry.detail }}</small></td>
                     </tr>
                 </tbody>
             </table>
@@ -250,6 +409,13 @@ onMounted(loadData);
                     <span class="m2-hint">Mitglieder pro Team</span>
                 </div>
             </div>
+            <div style="display: grid; grid-template-columns: 1fr; gap: 20px; margin-top: 20px;">
+                <div class="m2-field-group">
+                    <label class="m2-label">Automatische Abmeldung nach Inaktivität (Minuten)</label>
+                    <input v-model.number="settings.idleTimeout" type="number" class="m2-input" placeholder="z.B. 60">
+                    <span class="m2-hint">Meldet inaktive Benutzer clientseitig automatisch ab. 0 = deaktiviert.</span>
+                </div>
+            </div>
             <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
                 <button class="m2-btn m2-btn-primary" @click="saveSystemSettings">💾 Einstellungen speichern</button>
             </div>
@@ -273,6 +439,17 @@ onMounted(loadData);
 .admin-table { width: 100%; border-collapse: collapse; }
 .admin-table th { text-align: left; padding: 15px; border-bottom: 2px solid var(--border-color); color: var(--text-secondary); font-size: 0.9rem; }
 .admin-table td { padding: 15px; border-bottom: 1px solid var(--border-color); }
+
+.category-row {
+    background: var(--bg-input);
+    color: var(--gold-primary);
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+    padding: 8px 15px !important;
+    border-bottom: 1px solid var(--border-color);
+}
 
 .status-badge { padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
 .badge-premium { background: var(--gold-primary); color: #000; }

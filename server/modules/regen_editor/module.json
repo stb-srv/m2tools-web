@@ -1,0 +1,10 @@
+{
+    "id": "regen_editor",
+    "name": "Regen Editor",
+    "desc": "Bearbeite Monster-Spawns (regen.txt) - Gruppen, Mob-Vnums und Spawn-Punkte pro Map.",
+    "icon": "🐺",
+    "url": "/modules/regen_editor/index.html",
+    "api": "/api/regen",
+    "defaultAccess": "public",
+    "category": "Development"
+}

@@ -1,17 +1,55 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const speakeasy = require('speakeasy');
+const qrcode = require('qrcode');
 const db = require('../../config/database');
 const { JWT_SECRET } = require('./middleware');
-const { sendVerificationEmail } = require('./mailer');
+const { sendVerificationEmail, sendPasswordResetEmail } = require('./mailer');
 const { isDisposableEmail } = require('./disposable-emails');
 const { stripHTML } = require('../../utils/sanitizer');
 const storageService = require('../../services/storageService');
 const { closeWorkspaceDb } = require('../../utils/workspace');
 const runtimeConfig = require('../../config/runtimeConfig');
+const { logAudit } = require('../../utils/auditLog');
 
 const SALT_ROUNDS = 10;
 const TOKEN_EXPIRY = '24h';
+
+function verifyTotp(code, secret) {
+    return speakeasy.totp.verify({ secret, encoding: 'base32', token: String(code), window: 1 });
+}
+
+// Per-account login lockout, on top of the IP-based authLimiter in
+// server.js - that one alone doesn't stop a distributed attack targeting
+// one specific username from many IPs. In-memory only (like setup's
+// setupInProgress guard) - resets on restart, acceptable trade-off for
+// this app's scale.
+const MAX_FAILED_LOGIN_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
+const failedLoginAttempts = new Map(); // username.toLowerCase() -> { count, lockedUntil }
+
+function loginAttemptKey(username) {
+    return String(username).toLowerCase();
+}
+
+function isLockedOut(key) {
+    const entry = failedLoginAttempts.get(key);
+    return entry?.lockedUntil && entry.lockedUntil > Date.now();
+}
+
+function registerFailedLogin(key) {
+    const entry = failedLoginAttempts.get(key) || { count: 0 };
+    entry.count += 1;
+    if (entry.count >= MAX_FAILED_LOGIN_ATTEMPTS) {
+        entry.lockedUntil = Date.now() + LOGIN_LOCKOUT_MS;
+    }
+    failedLoginAttempts.set(key, entry);
+}
+
+function clearFailedLogin(key) {
+    failedLoginAttempts.delete(key);
+}
 
 /**
  * Auth Module Initialization
@@ -47,6 +85,29 @@ if (!runtimeConfig.needsSetup()) {
     initAuth();
 }
 
+function buildLoginResponse(user) {
+    const storageLimit = user.is_premium ? 50 * 1024 * 1024 : 20 * 1024 * 1024;
+    const token = jwt.sign(
+        { id: user.id, username: user.username, role: user.role, tv: user.token_version || 0 },
+        JWT_SECRET,
+        { expiresIn: TOKEN_EXPIRY }
+    );
+    return {
+        success: true,
+        token,
+        user: {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            role: user.role,
+            isPremium: !!user.is_premium,
+            storageLimit,
+            displayName: user.display_name || user.username,
+            avatarUrl: user.avatar_url
+        }
+    };
+}
+
 // ── Login ────────────────────────────────────────────
 const login = async (req, res) => {
     const { username, password } = req.body;
@@ -57,52 +118,260 @@ const login = async (req, res) => {
         return res.status(500).json({ success: false, error: 'Datenbank nicht verfügbar' });
     }
 
+    const attemptKey = loginAttemptKey(username);
+    if (isLockedOut(attemptKey)) {
+        return res.status(429).json({ success: false, error: 'Zu viele Fehlversuche. Bitte in 15 Minuten erneut versuchen.' });
+    }
+
     try {
         // Allow login by username OR email
         const [rows] = await db.query(
-            'SELECT id, username, email, password_hash, role, email_verified, display_name, avatar_url FROM m2em_users WHERE username = ? OR email = ?',
+            `SELECT id, username, email, password_hash, role, is_premium, email_verified, display_name,
+                    avatar_url, token_version, totp_enabled
+             FROM m2em_users WHERE username = ? OR email = ?`,
             [username, username]
         );
 
         if (rows.length === 0) {
+            registerFailedLogin(attemptKey);
             return res.status(401).json({ success: false, error: 'Ungültige Anmeldedaten' });
         }
 
         const user = rows[0];
         const valid = await bcrypt.compare(password, user.password_hash);
         if (!valid) {
+            registerFailedLogin(attemptKey);
             return res.status(401).json({ success: false, error: 'Ungültige Anmeldedaten' });
         }
+        clearFailedLogin(attemptKey);
 
         // Check email verification (skip for admin)
         if (!user.email_verified && user.role !== 'admin') {
             return res.status(403).json({ success: false, error: 'E-Mail noch nicht verifiziert. Bitte prüfe dein Postfach.', needsVerification: true });
         }
 
-        const token = jwt.sign(
-            { id: user.id, username: user.username, role: user.role },
-            JWT_SECRET,
-            { expiresIn: TOKEN_EXPIRY }
-        );
+        // 2FA enabled: password alone isn't a finished login - hand back a
+        // short-lived pending token instead of a real session; the client
+        // exchanges it for one via /2fa/login once the code checks out.
+        if (user.totp_enabled) {
+            const pendingToken = jwt.sign({ id: user.id, purpose: '2fa_pending' }, JWT_SECRET, { expiresIn: '5m' });
+            return res.json({ success: true, requires2FA: true, pendingToken });
+        }
 
-        const storageLimit = user.is_premium ? 50 * 1024 * 1024 : 20 * 1024 * 1024;
-
-        res.json({
-            success: true,
-            token,
-            user: {
-                id: user.id,
-                username: user.username,
-                email: user.email,
-                role: user.role,
-                isPremium: !!user.is_premium,
-                storageLimit,
-                displayName: user.display_name || user.username,
-                avatarUrl: user.avatar_url
-            }
-        });
+        res.json(buildLoginResponse(user));
     } catch (err) {
         console.error('[Auth] Login error:', err);
+        res.status(500).json({ success: false, error: 'Server-Fehler' });
+    }
+};
+
+// ── 2FA: complete login after password + TOTP/recovery code ─────────
+const verify2FALogin = async (req, res) => {
+    const { pendingToken, code } = req.body;
+    if (!pendingToken || !code) {
+        return res.status(400).json({ success: false, error: 'Code erforderlich' });
+    }
+
+    let decoded;
+    try {
+        decoded = jwt.verify(pendingToken, JWT_SECRET);
+        if (decoded.purpose !== '2fa_pending') throw new Error('wrong purpose');
+    } catch (err) {
+        return res.status(401).json({ success: false, error: 'Sitzung abgelaufen. Bitte erneut anmelden.' });
+    }
+
+    try {
+        const [rows] = await db.query(
+            `SELECT id, username, email, role, is_premium, display_name, avatar_url, token_version,
+                    totp_secret, totp_recovery_codes
+             FROM m2em_users WHERE id = ?`,
+            [decoded.id]
+        );
+        if (rows.length === 0) return res.status(401).json({ success: false, error: 'Benutzer nicht gefunden' });
+        const user = rows[0];
+
+        let valid = !!user.totp_secret && verifyTotp(code, user.totp_secret);
+
+        // Fall back to a one-time recovery code if the TOTP code didn't match.
+        if (!valid && user.totp_recovery_codes) {
+            const codes = JSON.parse(user.totp_recovery_codes);
+            for (let i = 0; i < codes.length; i++) {
+                if (await bcrypt.compare(String(code), codes[i])) {
+                    valid = true;
+                    codes.splice(i, 1);
+                    await db.query('UPDATE m2em_users SET totp_recovery_codes = ? WHERE id = ?', [JSON.stringify(codes), user.id]);
+                    break;
+                }
+            }
+        }
+
+        if (!valid) {
+            return res.status(401).json({ success: false, error: 'Ungültiger Code' });
+        }
+
+        res.json(buildLoginResponse(user));
+    } catch (err) {
+        console.error('[Auth] 2FA login error:', err);
+        res.status(500).json({ success: false, error: 'Server-Fehler' });
+    }
+};
+
+// ── 2FA: setup / confirm / disable (own account) ─────────────────────
+const get2FAStatus = async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT totp_enabled FROM m2em_users WHERE id = ?', [req.user.id]);
+        res.json({ enabled: !!rows[0]?.totp_enabled });
+    } catch (err) {
+        res.status(500).json({ error: 'Server-Fehler' });
+    }
+};
+
+const setup2FA = async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT username FROM m2em_users WHERE id = ?', [req.user.id]);
+        if (rows.length === 0) return res.status(404).json({ success: false, error: 'User nicht gefunden' });
+
+        const secret = speakeasy.generateSecret({ length: 20 }).base32;
+        const otpauthUrl = speakeasy.otpauthURL({ secret, label: rows[0].username, issuer: 'M2-Tools', encoding: 'base32' });
+        const qrCodeDataUrl = await qrcode.toDataURL(otpauthUrl);
+
+        // Deliberately not persisted yet - only /2fa/verify-setup writes it,
+        // and only once the user has proven their authenticator app has it.
+        res.json({ success: true, secret, qrCodeDataUrl });
+    } catch (err) {
+        console.error('[Auth] 2FA setup error:', err);
+        res.status(500).json({ success: false, error: 'Server-Fehler' });
+    }
+};
+
+const RECOVERY_CODE_COUNT = 8;
+function generateRecoveryCodes() {
+    const codes = [];
+    for (let i = 0; i < RECOVERY_CODE_COUNT; i++) {
+        const raw = crypto.randomBytes(5).toString('hex').toUpperCase();
+        codes.push(`${raw.slice(0, 5)}-${raw.slice(5)}`);
+    }
+    return codes;
+}
+
+const verify2FASetup = async (req, res) => {
+    const { secret, code } = req.body;
+    if (!secret || !code) return res.status(400).json({ success: false, error: 'Secret und Code erforderlich' });
+
+    try {
+        if (!verifyTotp(code, secret)) {
+            return res.status(400).json({ success: false, error: 'Ungültiger Code' });
+        }
+
+        const recoveryCodes = generateRecoveryCodes();
+        const hashedCodes = await Promise.all(recoveryCodes.map(c => bcrypt.hash(c, SALT_ROUNDS)));
+
+        await db.query(
+            'UPDATE m2em_users SET totp_secret = ?, totp_enabled = 1, totp_recovery_codes = ? WHERE id = ?',
+            [secret, JSON.stringify(hashedCodes), req.user.id]
+        );
+
+        // Shown to the user exactly once - never retrievable again afterwards.
+        res.json({ success: true, recoveryCodes });
+    } catch (err) {
+        console.error('[Auth] 2FA verify-setup error:', err);
+        res.status(500).json({ success: false, error: 'Server-Fehler' });
+    }
+};
+
+const disable2FA = async (req, res) => {
+    const { password, code } = req.body;
+    if (!password || !code) return res.status(400).json({ success: false, error: 'Passwort und Code erforderlich' });
+
+    try {
+        const [rows] = await db.query('SELECT password_hash, totp_secret FROM m2em_users WHERE id = ?', [req.user.id]);
+        if (rows.length === 0) return res.status(404).json({ success: false, error: 'User nicht gefunden' });
+
+        const validPassword = await bcrypt.compare(password, rows[0].password_hash);
+        if (!validPassword) return res.status(401).json({ success: false, error: 'Passwort ist falsch' });
+
+        const validCode = !!rows[0].totp_secret && verifyTotp(code, rows[0].totp_secret);
+        if (!validCode) return res.status(401).json({ success: false, error: 'Ungültiger Code' });
+
+        await db.query('UPDATE m2em_users SET totp_secret = NULL, totp_enabled = 0, totp_recovery_codes = NULL WHERE id = ?', [req.user.id]);
+        res.json({ success: true, message: '2FA deaktiviert' });
+    } catch (err) {
+        console.error('[Auth] 2FA disable error:', err);
+        res.status(500).json({ success: false, error: 'Server-Fehler' });
+    }
+};
+
+// ── Password reset (forgot / reset) ──────────────────────────────────
+const forgotPassword = async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, error: 'E-Mail erforderlich' });
+
+    try {
+        const [rows] = await db.query('SELECT id, username FROM m2em_users WHERE email = ?', [email]);
+
+        // Always the same response, whether or not the address exists -
+        // avoids leaking which emails have an account.
+        if (rows.length > 0) {
+            const resetToken = crypto.randomBytes(32).toString('hex');
+            const resetExpires = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1h
+
+            await db.query('UPDATE m2em_users SET reset_token = ?, reset_expires = ? WHERE id = ?', [resetToken, resetExpires, rows[0].id]);
+
+            const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3001}`;
+            const smtpConfigured = process.env.SMTP_HOST && process.env.SMTP_USER;
+            if (smtpConfigured) {
+                await sendPasswordResetEmail(email, rows[0].username, resetToken, baseUrl);
+            } else {
+                console.log(`[Auth] SMTP nicht konfiguriert - Reset-Link für ${email}: ${baseUrl}/reset-password.html?token=${resetToken}`);
+            }
+        }
+
+        res.json({ success: true, message: 'Falls die E-Mail existiert, wurde ein Link zum Zurücksetzen gesendet.' });
+    } catch (err) {
+        console.error('[Auth] Forgot-password error:', err);
+        res.status(500).json({ success: false, error: 'Server-Fehler' });
+    }
+};
+
+const resetPassword = async (req, res) => {
+    const { token, password, passwordConfirm } = req.body;
+    if (!token || !password) return res.status(400).json({ success: false, error: 'Token und Passwort erforderlich' });
+    if (password.length < 6) return res.status(400).json({ success: false, error: 'Passwort muss mindestens 6 Zeichen lang sein' });
+    if (password !== passwordConfirm) return res.status(400).json({ success: false, error: 'Passwörter stimmen nicht überein' });
+
+    try {
+        const [rows] = await db.query('SELECT id, reset_expires FROM m2em_users WHERE reset_token = ?', [token]);
+        if (rows.length === 0) return res.status(400).json({ success: false, error: 'Ungültiger oder bereits verwendeter Token' });
+
+        const user = rows[0];
+        if (new Date(user.reset_expires) < new Date()) {
+            return res.status(400).json({ success: false, error: 'Token abgelaufen. Bitte fordere einen neuen Link an.' });
+        }
+
+        const hash = await bcrypt.hash(password, SALT_ROUNDS);
+        // Bumping token_version invalidates every session issued before this
+        // reset - if the old password leaked, those sessions die with it.
+        await db.query(
+            'UPDATE m2em_users SET password_hash = ?, reset_token = NULL, reset_expires = NULL, token_version = COALESCE(token_version, 0) + 1 WHERE id = ?',
+            [hash, user.id]
+        );
+
+        res.json({ success: true, message: 'Passwort erfolgreich zurückgesetzt. Du kannst dich jetzt anmelden.' });
+    } catch (err) {
+        console.error('[Auth] Reset-password error:', err);
+        res.status(500).json({ success: false, error: 'Server-Fehler' });
+    }
+};
+
+// ── Force logout (admin only) ────────────────────────────────────────
+const forceLogout = async (req, res) => {
+    const { id } = req.params;
+    try {
+        await db.query('UPDATE m2em_users SET token_version = COALESCE(token_version, 0) + 1 WHERE id = ?', [id]);
+        await logAudit(req, 'user.force_logout', 'user', id);
+        res.json({ success: true, message: 'Sitzungen des Benutzers wurden beendet' });
+    } catch (err) {
+        console.error('[Auth] Force-logout error:', err);
         res.status(500).json({ success: false, error: 'Server-Fehler' });
     }
 };
@@ -298,7 +567,12 @@ const updateAccount = async (req, res) => {
             }
 
             const hash = await bcrypt.hash(newPassword, SALT_ROUNDS);
-            await db.query('UPDATE m2em_users SET password_hash = ? WHERE id = ?', [hash, userId]);
+            // Bumps token_version too - a changed password should invalidate
+            // every other session immediately, not just this one going forward.
+            await db.query(
+                'UPDATE m2em_users SET password_hash = ?, token_version = COALESCE(token_version, 0) + 1 WHERE id = ?',
+                [hash, userId]
+            );
         }
 
         // Update display name
@@ -392,7 +666,11 @@ const updateUser = async (req, res) => {
     try {
         if (password) {
             const hash = await bcrypt.hash(password, SALT_ROUNDS);
-            await db.query('UPDATE m2em_users SET password_hash = ? WHERE id = ?', [hash, id]);
+            await db.query(
+                'UPDATE m2em_users SET password_hash = ?, token_version = COALESCE(token_version, 0) + 1 WHERE id = ?',
+                [hash, id]
+            );
+            await logAudit(req, 'user.password_reset', 'user', id);
         }
         if (role) {
             const validRoles = ['admin', 'editor', 'viewer'];
@@ -400,6 +678,7 @@ const updateUser = async (req, res) => {
                 return res.status(400).json({ success: false, error: 'Ungültige Rolle' });
             }
             await db.query('UPDATE m2em_users SET role = ? WHERE id = ?', [role, id]);
+            await logAudit(req, 'user.role_updated', 'user', id, `role=${role}`);
         }
         res.json({ success: true });
     } catch (err) {
@@ -455,6 +734,7 @@ const deleteUser = async (req, res) => {
         await db.query('DELETE FROM mob_proto WHERE userId = ? AND workspace_id IS NULL', [id]);
 
         await db.query('DELETE FROM m2em_users WHERE id = ?', [id]);
+        await logAudit(req, 'user.deleted', 'user', id);
         res.json({ success: true });
     } catch (err) {
         console.error('[Auth] Delete error:', err);
@@ -464,5 +744,7 @@ const deleteUser = async (req, res) => {
 
 module.exports = {
     login, getMe, register, registerPublic, verifyEmail,
-    resendVerification, updateAccount, listUsers, updateUser, deleteUser
+    resendVerification, updateAccount, listUsers, updateUser, deleteUser,
+    verify2FALogin, get2FAStatus, setup2FA, verify2FASetup, disable2FA,
+    forgotPassword, resetPassword, forceLogout
 };

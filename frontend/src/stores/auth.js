@@ -27,7 +27,9 @@ export const useAuthStore = defineStore('auth', {
         modules: [],
         modulesLoaded: false,
         needsSetup: false,
-        setupChecked: false
+        setupChecked: false,
+        idleTimeoutMinutes: 60,
+        idleTimeoutLoaded: false
     }),
     getters: {
         isLoggedIn: (state) => !!state.token,
@@ -74,11 +76,33 @@ export const useAuthStore = defineStore('auth', {
                 body: JSON.stringify({ username, password })
             });
             const data = await res.json();
+            if (data.success && data.requires2FA) {
+                return { success: true, requires2FA: true, pendingToken: data.pendingToken };
+            }
             if (data.success) {
                 this.setSession(data.token, data.user);
                 return { success: true, user: data.user };
             }
             return { success: false, error: data.error || 'Login failed', needsVerification: data.needsVerification };
+        },
+
+        /**
+         * Second step of login when the account has 2FA enabled - exchanges
+         * the short-lived pendingToken from login() + a TOTP/recovery code
+         * for a real session.
+         */
+        async verify2FA(pendingToken, code) {
+            const res = await fetch('/api/auth/2fa/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pendingToken, code })
+            });
+            const data = await res.json();
+            if (data.success) {
+                this.setSession(data.token, data.user);
+                return { success: true, user: data.user };
+            }
+            return { success: false, error: data.error || '2FA fehlgeschlagen' };
         },
 
         logout() {
@@ -113,6 +137,24 @@ export const useAuthStore = defineStore('auth', {
                 }
             }
             return res;
+        },
+
+        /**
+         * Idle-logout timeout (minutes), admin-configurable via the
+         * Admin panel. Public endpoint so it applies to every session
+         * without requiring a prior authenticated call.
+         */
+        async fetchIdleTimeout(force = false) {
+            if (this.idleTimeoutLoaded && !force) return this.idleTimeoutMinutes;
+            try {
+                const res = await fetch('/api/admin/settings/public');
+                const data = await res.json();
+                this.idleTimeoutMinutes = Number.isFinite(data.idleTimeoutMinutes) ? data.idleTimeoutMinutes : 60;
+                this.idleTimeoutLoaded = true;
+            } catch (e) {
+                console.error('[auth store] Failed to load idle timeout:', e);
+            }
+            return this.idleTimeoutMinutes;
         },
 
         async fetchModuleStatus(force = false) {

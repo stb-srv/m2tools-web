@@ -17,6 +17,15 @@ const errorMsg = ref('');
 const needsVerification = ref(false);
 const verifiedMsg = ref(route.query.verified === 'true');
 
+// Set once login() reports requires2FA - switches the form to the
+// code-entry step instead of navigating away.
+const pendingToken = ref('');
+const totpCode = ref('');
+
+function goToRedirect() {
+    router.push(typeof route.query.redirect === 'string' ? route.query.redirect : '/index.html');
+}
+
 async function onSubmit() {
     errorMsg.value = '';
     needsVerification.value = false;
@@ -29,10 +38,34 @@ async function onSubmit() {
     submitting.value = true;
     try {
         const result = await auth.login(username.value.trim(), password.value);
-        if (result.success) {
-            router.push(typeof route.query.redirect === 'string' ? route.query.redirect : '/index.html');
+        if (result.success && result.requires2FA) {
+            pendingToken.value = result.pendingToken;
+        } else if (result.success) {
+            goToRedirect();
         } else {
             if (result.needsVerification) needsVerification.value = true;
+            errorMsg.value = result.error;
+        }
+    } catch {
+        errorMsg.value = 'Server nicht erreichbar';
+    } finally {
+        submitting.value = false;
+    }
+}
+
+async function onSubmit2FA() {
+    errorMsg.value = '';
+    if (!totpCode.value.trim()) {
+        errorMsg.value = 'Bitte Code eingeben.';
+        return;
+    }
+
+    submitting.value = true;
+    try {
+        const result = await auth.verify2FA(pendingToken.value, totpCode.value.trim());
+        if (result.success) {
+            goToRedirect();
+        } else {
             errorMsg.value = result.error;
         }
     } catch {
@@ -79,7 +112,7 @@ onMounted(() => {
             </div>
             <div v-if="errorMsg" class="msg error show">{{ errorMsg }}</div>
 
-            <form @submit.prevent="onSubmit">
+            <form v-if="!pendingToken" @submit.prevent="onSubmit">
                 <div class="field">
                     <label>Benutzername</label>
                     <div class="m2-input-group">
@@ -100,6 +133,20 @@ onMounted(() => {
                 <button type="submit" class="m2-btn-login" :disabled="submitting">{{ submitting ? '⏳' : 'Einloggen' }}</button>
             </form>
 
+            <form v-else @submit.prevent="onSubmit2FA">
+                <div class="field">
+                    <label>Zwei-Faktor-Code</label>
+                    <div class="m2-input-group">
+                        <div class="input-icon-box">🔐</div>
+                        <input v-model="totpCode" type="text" inputmode="numeric" class="m2-input" placeholder="6-stelliger Code oder Recovery-Code" required autocomplete="one-time-code" autofocus>
+                    </div>
+                </div>
+                <button type="submit" class="m2-btn-login" :disabled="submitting">{{ submitting ? '⏳' : 'Bestätigen' }}</button>
+            </form>
+
+            <div class="login-footer">
+                <router-link to="/forgot-password.html">Passwort vergessen?</router-link>
+            </div>
             <div class="login-footer">
                 Noch keinen Account? <router-link to="/register.html">Registrieren</router-link>
             </div>

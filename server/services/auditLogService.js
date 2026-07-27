@@ -1,10 +1,10 @@
 /**
  * M2-Tools – Audit trail for the "Server-Verbindung" feature.
  *
- * No general-purpose audit-log mechanism exists elsewhere in the app;
- * this is scoped specifically to remote-connection actions (SSH/SFTP/
- * live-DB), since that's the one feature where "who did what to which
- * external server, and did it succeed" needs to be reconstructable.
+ * Scoped specifically to remote-connection actions (SSH/SFTP/live-DB) and
+ * their workspace/success/error_message shape. The general-purpose admin
+ * audit log (module/user/SMTP changes etc.) is server/utils/auditLog.js,
+ * writing to the separate `audit_log` table.
  */
 const db = require('../config/database');
 

@@ -9,6 +9,9 @@ router.post('/login', controller.login);
 router.post('/register', controller.registerPublic);          // Public registration
 router.get('/verify', controller.verifyEmail);                // Email verification
 router.post('/resend-verification', controller.resendVerification);
+router.post('/2fa/login', controller.verify2FALogin);          // Exchange pending token + TOTP/recovery code for a session
+router.post('/forgot-password', controller.forgotPassword);
+router.post('/reset-password', controller.resetPassword);
 
 // Module status (public metadata + access levels)
 router.get('/modules/status', async (req, res) => {
@@ -48,10 +51,18 @@ router.get('/modules/status', async (req, res) => {
 router.get('/me', requireAuth, controller.getMe);
 router.put('/account', requireAuth, controller.updateAccount); // Account settings
 
+// 2FA setup (own account, admin only per product decision - enforced client-side
+// in Account.vue; the endpoints themselves just require a valid session)
+router.get('/2fa/status', requireAuth, controller.get2FAStatus);
+router.post('/2fa/setup', requireAuth, requireRole('admin'), controller.setup2FA);
+router.post('/2fa/verify-setup', requireAuth, requireRole('admin'), controller.verify2FASetup);
+router.post('/2fa/disable', requireAuth, controller.disable2FA);
+
 // ── Admin-only Routes ────────────────────────────────
 router.post('/admin/register', requireAuth, requireRole('admin'), controller.register);
 router.get('/users', requireAuth, requireRole('admin'), controller.listUsers);
 router.put('/users/:id', requireAuth, requireRole('admin'), controller.updateUser);
 router.delete('/users/:id', requireAuth, requireRole('admin'), controller.deleteUser);
+router.post('/users/:id/force-logout', requireAuth, requireRole('admin'), controller.forceLogout);
 
 module.exports = router;

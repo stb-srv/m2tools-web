@@ -224,6 +224,10 @@ fs.readdirSync(modulesBaseDir).forEach(folder => {
                 // used to spam a victim's inbox or run up SMTP costs), so it
                 // gets the stricter limiter too instead of just apiLimiter.
                 app.use(prefix + '/resend-verification', authLimiter);
+                app.use(prefix + '/forgot-password', authLimiter);
+                // Guessing the 6-digit TOTP/recovery code is the actual
+                // attack surface here, same brute-force profile as /login.
+                app.use(prefix + '/2fa/login', authLimiter);
             }
             if (folder === 'setup') {
                 // Creates the first account, same abuse profile as register.

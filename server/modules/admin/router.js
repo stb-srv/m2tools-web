@@ -13,6 +13,14 @@ router.post('/users/update', requireAuth, requireRole('admin'), controller.updat
 router.get('/settings', requireAuth, requireRole('admin'), controller.getSystemSettings);
 router.post('/settings/update', requireAuth, requireRole('admin'), controller.updateSystemSettings);
 
+router.get('/smtp', requireAuth, requireRole('admin'), controller.getSmtpSettings);
+router.post('/smtp/update', requireAuth, requireRole('admin'), controller.updateSmtpSettings);
+
+router.get('/audit-log', requireAuth, requireRole('admin'), controller.getAuditLog);
+
+// Public: idle-logout timeout, needed by every session, not just admins
+router.get('/settings/public', controller.getPublicSettings);
+
 // Assets & System
 router.get('/items', controller.getItems);
 router.get('/changelogs', controller.getChangelogs);

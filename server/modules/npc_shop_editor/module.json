@@ -1,0 +1,10 @@
+{
+    "id": "npc_shop_editor",
+    "name": "NPC & Shop Editor",
+    "desc": "Bearbeite Shop-Inhalte (shop.txt) strukturiert und NPC-Dateien (npc.txt) als Text.",
+    "icon": "🧙",
+    "url": "/modules/npc_shop_editor/index.html",
+    "api": "/api/npc_shop",
+    "defaultAccess": "public",
+    "category": "Development"
+}

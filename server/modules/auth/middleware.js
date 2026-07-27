@@ -15,9 +15,24 @@ if (!JWT_SECRET) {
 }
 
 /**
+ * Whether a decoded JWT's embedded token_version still matches the DB -
+ * lets an admin ("force logout") or a password change invalidate every
+ * previously issued token for a user without needing a session store.
+ * Tokens signed before this feature existed have no `tv` claim; those are
+ * treated as version 0, matching the column's DEFAULT 0.
+ */
+async function isTokenVersionCurrent(decoded) {
+    const db = require('../../config/database');
+    const [rows] = await db.query('SELECT token_version FROM m2em_users WHERE id = ?', [decoded.id]);
+    if (rows.length === 0) return false;
+    const currentVersion = rows[0].token_version || 0;
+    return (decoded.tv || 0) === currentVersion;
+}
+
+/**
  * Require authenticated user.
  */
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
     const header = req.headers.authorization;
     if (!header || !header.startsWith('Bearer ')) {
         return next(ApiError.unauthorized('Anmeldung erforderlich'));
@@ -26,6 +41,9 @@ function requireAuth(req, res, next) {
     const token = header.split(' ')[1];
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
+        if (!(await isTokenVersionCurrent(decoded))) {
+            return next(ApiError.unauthorized('Sitzung wurde beendet. Bitte erneut anmelden.'));
+        }
         req.user = decoded;
         next();
     } catch (err) {
@@ -36,12 +54,13 @@ function requireAuth(req, res, next) {
 /**
  * Optional auth – sets req.user if valid token present, but doesn't block.
  */
-function optionalAuth(req, res, next) {
+async function optionalAuth(req, res, next) {
     const header = req.headers.authorization;
     if (header && header.startsWith('Bearer ')) {
         const token = header.split(' ')[1];
         try {
-            req.user = jwt.verify(token, JWT_SECRET);
+            const decoded = jwt.verify(token, JWT_SECRET);
+            req.user = (await isTokenVersionCurrent(decoded)) ? decoded : null;
         } catch (err) {
             req.user = null;
         }
@@ -94,6 +113,9 @@ function requireModuleAccess(moduleId) {
                 decoded = jwt.verify(token, JWT_SECRET);
             } catch (e) {
                 return next(ApiError.unauthorized('Sitzung ungültig'));
+            }
+            if (!(await isTokenVersionCurrent(decoded))) {
+                return next(ApiError.unauthorized('Sitzung wurde beendet. Bitte erneut anmelden.'));
             }
             req.user = decoded;
 

@@ -1,0 +1,10 @@
+{
+    "id": "server_status",
+    "name": "Server-Status Dashboard",
+    "desc": "Verbindungstest und Status-Kommando deines Metin2-Servers auf einen Blick.",
+    "icon": "📡",
+    "url": "/modules/server_status/index.html",
+    "api": null,
+    "defaultAccess": "premium",
+    "category": "Development"
+}

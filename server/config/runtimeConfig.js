@@ -90,6 +90,17 @@ function saveConfig(values) {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(next, null, 2), 'utf8');
 }
 
+/**
+ * Returns the current value (from process.env, the live source of truth)
+ * for a single managed key, or '' if unset/not a managed key. Used by the
+ * admin SMTP settings screen to show what's currently configured without
+ * exposing JWT_SECRET/CREDENTIALS_ENCRYPTION_KEY to any API response.
+ */
+function getManagedValue(key) {
+    if (!MANAGED_KEYS.includes(key)) return '';
+    return process.env[key] || '';
+}
+
 applyToEnv();
 
-module.exports = { needsSetup, saveConfig, CONFIG_PATH };
+module.exports = { needsSetup, saveConfig, getManagedValue, CONFIG_PATH };
