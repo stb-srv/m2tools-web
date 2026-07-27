@@ -29,6 +29,36 @@ const visibleModules = computed(() => modules.value.filter(m => {
     return true;
 }));
 
+// Same grouping/ordering as the Admin panel's Modul-Berechtigungen table -
+// with a growing tool count a single flat grid stops being scannable, so
+// this breaks it into the same categories admins already assign per module.
+const CATEGORY_ORDER = ['System', 'Admin', 'Database', 'Development'];
+const activeCategory = ref('Alle');
+
+const categories = computed(() => {
+    const set = new Set(visibleModules.value.map(m => m.category || 'Sonstiges'));
+    return Array.from(set).sort((a, b) => {
+        const ai = CATEGORY_ORDER.indexOf(a);
+        const bi = CATEGORY_ORDER.indexOf(b);
+        if (ai === -1 && bi === -1) return a.localeCompare(b);
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+    });
+});
+
+const groupedModules = computed(() => {
+    const groups = {};
+    for (const m of visibleModules.value) {
+        const cat = m.category || 'Sonstiges';
+        if (activeCategory.value !== 'Alle' && cat !== activeCategory.value) continue;
+        (groups[cat] = groups[cat] || []).push(m);
+    }
+    return categories.value
+        .filter(cat => groups[cat])
+        .map(cat => ({ category: cat, items: groups[cat] }));
+});
+
 function onTileClick(m, e) {
     if (auth.canAccess(m.access_level)) return;
     e.preventDefault();
@@ -48,27 +78,35 @@ onMounted(async () => {
         <p class="subtitle">Modulare Metin2 Entwickler-Werkzeuge</p>
     </header>
 
-    <div class="dashboard-grid">
-        <router-link
-            v-for="m in visibleModules"
-            :key="m.id"
-            :to="auth.canAccess(m.access_level) ? m.url : '#'"
-            class="tile"
-            :class="{ disabled: !auth.canAccess(m.access_level) }"
-            @click="onTileClick(m, $event)"
-        >
-            <div class="tile-status">
-                <span v-if="tagInfo(m)" class="tag" :class="tagInfo(m).class">{{ tagInfo(m).label }}</span>
-            </div>
-            <div class="tile-new">
-                <span v-if="isNew(m)" class="tag new">NEU</span>
-                <span class="tag version">{{ m.version || 'v1.0.0' }}</span>
-            </div>
-            <div v-if="!auth.canAccess(m.access_level)" class="tile-lock">🔒</div>
-            <div class="tile-icon">{{ m.icon || '🛠️' }}</div>
-            <div class="tile-title">{{ m.name }}</div>
-            <div class="tile-desc">{{ m.desc }}</div>
-        </router-link>
+    <div class="category-filter">
+        <button class="cat-chip" :class="{ active: activeCategory === 'Alle' }" @click="activeCategory = 'Alle'">Alle</button>
+        <button v-for="cat in categories" :key="cat" class="cat-chip" :class="{ active: activeCategory === cat }" @click="activeCategory = cat">{{ cat }}</button>
+    </div>
+
+    <div v-for="group in groupedModules" :key="group.category" class="category-section">
+        <h2 class="category-heading">{{ group.category }}</h2>
+        <div class="dashboard-grid">
+            <router-link
+                v-for="m in group.items"
+                :key="m.id"
+                :to="auth.canAccess(m.access_level) ? m.url : '#'"
+                class="tile"
+                :class="{ disabled: !auth.canAccess(m.access_level) }"
+                @click="onTileClick(m, $event)"
+            >
+                <div class="tile-status">
+                    <span v-if="tagInfo(m)" class="tag" :class="tagInfo(m).class">{{ tagInfo(m).label }}</span>
+                </div>
+                <div class="tile-new">
+                    <span v-if="isNew(m)" class="tag new">NEU</span>
+                    <span class="tag version">{{ m.version || 'v1.0.0' }}</span>
+                </div>
+                <div v-if="!auth.canAccess(m.access_level)" class="tile-lock">🔒</div>
+                <div class="tile-icon">{{ m.icon || '🛠️' }}</div>
+                <div class="tile-title">{{ m.name }}</div>
+                <div class="tile-desc">{{ m.desc }}</div>
+            </router-link>
+        </div>
     </div>
 </template>
 
@@ -78,9 +116,27 @@ header h1 { font-size: 3.5rem; letter-spacing: 2px; font-family: var(--font-head
 header h1 .accent { color: var(--gold-primary); text-shadow: 0 0 15px var(--gold-glow); }
 .subtitle { font-size: 1.1rem; color: var(--text-secondary); margin-top: 10px; letter-spacing: 1px; }
 
+.category-filter {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;
+    max-width: 1200px; width: 100%; padding: 0 20px 10px;
+}
+.cat-chip {
+    background: var(--bg-input); border: 1px solid var(--border-color); color: var(--text-secondary);
+    padding: 8px 18px; border-radius: 999px; font-size: 0.85rem; font-weight: 600;
+    cursor: pointer; transition: var(--transition); letter-spacing: 0.3px;
+}
+.cat-chip:hover { border-color: var(--gold-border); color: var(--text-primary); }
+.cat-chip.active { background: var(--gold-primary); color: #000; border-color: var(--gold-primary); }
+
+.category-section { width: 100%; max-width: 1200px; margin: 0 auto; padding: 10px 0; }
+.category-heading {
+    font-family: var(--font-heading); font-size: 1.2rem; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--gold-primary); padding: 0 20px 15px; opacity: 0.9;
+}
+
 .dashboard-grid {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 30px; max-width: 1200px; width: 100%; padding: 20px;
+    gap: 30px; width: 100%; padding: 0 20px 20px;
 }
 
 .tile {
