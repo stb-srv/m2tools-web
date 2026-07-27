@@ -35,6 +35,9 @@ function toggleLang() {
     <nav id="m2-navbar" class="m2-navbar">
         <div id="m2-navbar-left" class="m2-nav-left">
             <router-link to="/index.html" class="m2-logo">M2 <span>TOOLS</span></router-link>
+            <button class="m2-control-btn with-text" title="Module durchsuchen" @click="ui.toggleModuleDrawer()">
+                🧰 <span>Module</span>
+            </button>
             <WorkspaceSwitcher v-if="auth.isLoggedIn" />
         </div>
 

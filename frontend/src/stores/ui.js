@@ -12,11 +12,16 @@ export const useUiStore = defineStore('ui', {
     state: () => ({
         toasts: [],
         modal: null, // { type: 'confirm'|'alert'|'prompt', title, message, okText, cancelText, defaultValue, resolve }
-        commandPaletteOpen: false
+        commandPaletteOpen: false,
+        moduleDrawerOpen: false
     }),
     actions: {
         toggleCommandPalette() {
             this.commandPaletteOpen = !this.commandPaletteOpen;
+        },
+
+        toggleModuleDrawer() {
+            this.moduleDrawerOpen = !this.moduleDrawerOpen;
         },
 
         toast(message, type = 'info', duration = 4000) {
