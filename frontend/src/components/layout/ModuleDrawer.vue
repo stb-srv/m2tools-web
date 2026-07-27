@@ -113,7 +113,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
     background: rgba(0, 0, 0, 0.6);
     z-index: 6000; /* above the navbar (5000) and sub-elements */
     display: flex;
-    justify-content: flex-end;
+    justify-content: flex-start;
 }
 
 .m2-module-drawer {
@@ -121,8 +121,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
     max-width: 90vw;
     height: 100%;
     background: var(--bg-card);
-    border-left: 1px solid var(--border-color);
-    box-shadow: -20px 0 50px rgba(0, 0, 0, 0.5);
+    border-right: 1px solid var(--border-color);
+    box-shadow: 20px 0 50px rgba(0, 0, 0, 0.5);
     display: flex;
     flex-direction: column;
     backdrop-filter: blur(20px);
@@ -201,5 +201,5 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 .m2-drawer-enter-active, .m2-drawer-leave-active { transition: opacity 0.25s ease; }
 .m2-drawer-enter-from, .m2-drawer-leave-to { opacity: 0; }
 .m2-drawer-enter-active .m2-module-drawer, .m2-drawer-leave-active .m2-module-drawer { transition: transform 0.3s ease; }
-.m2-drawer-enter-from .m2-module-drawer, .m2-drawer-leave-to .m2-module-drawer { transform: translateX(100%); }
+.m2-drawer-enter-from .m2-module-drawer, .m2-drawer-leave-to .m2-module-drawer { transform: translateX(-100%); }
 </style>
