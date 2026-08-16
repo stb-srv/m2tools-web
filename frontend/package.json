@@ -12,16 +12,16 @@
   },
   "dependencies": {
     "jszip": "^3.10.1",
-    "pinia": "^4.0.2",
-    "vue": "^3.5.40",
+    "pinia": "^4.0.3",
+    "vue": "^3.5.41",
     "vue-i18n": "^11.4.8",
     "vue-router": "^5.2.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.0",
+    "@playwright/test": "^1.62.1",
     "@vitejs/plugin-vue": "^6.0.8",
-    "happy-dom": "^20.11.1",
-    "vite": "^8.1.5",
+    "happy-dom": "^20.11.2",
+    "vite": "^8.2.1",
     "vitest": "^4.1.10"
   }
 }
